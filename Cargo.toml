@@ -1,0 +1,13 @@
+[package]
+name = "arraydiff"
+version = "0.0.1"
+authors = ["Peter Jin <peterhaijin@gmail.com>"]
+
+[lib]
+name = "arraydiff"
+path = "src/lib.rs"
+
+[dependencies]
+arithmetic = { path = "../libarithmetic" }
+densearray = "*"
+operator = { path = "../liboperator" }
