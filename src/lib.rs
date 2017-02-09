@@ -1,201 +1,343 @@
-extern crate arithmetic;
+#![feature(specialization)]
+
 extern crate densearray;
-extern crate operator;
+#[cfg(cuda)] extern crate devicemem_cuda;
 
-use arithmetic::*;
-use densearray::prelude::*;
-use operator::prelude::*;
+//use arithmetic::*;
+//use densearray::prelude::*;
 
-use std::cell::{Cell};
-use std::marker::{PhantomData};
+use std::any::{Any};
+use std::cell::{Cell, RefCell, Ref, RefMut};
+use std::collections::{HashSet};
 use std::rc::{Rc};
 
+pub mod ops;
+#[cfg(cuda)] pub mod ops_cuda;
 pub mod prelude;
 
-#[derive(Clone, Copy, Debug)]
-pub enum ShapeDesc {
-  Dim(usize),
-  Batch(usize),
-  X(usize),
-  Y(usize),
-  Z(usize),
-  T(usize),
-}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct NodeId(u64);
 
-pub enum Param<A> {
-  New,
-  Shared(Rc<ParamBlock<A>>),
-  Constant(A),
-}
-
-pub trait ArrayDiffOperator<A, S, IoBuf: ?Sized>: DiffOperator<S, IoBuf> {
-  fn _out(&self, arm: usize) -> Rc<ArrayDiffVar<A>>;
-}
-
-pub struct ArrayDiffVar<A> {
-  pub clock:    Cell<usize>,
-  pub vars:     Vec<Rc<VarBlock<A>>>,
-}
-
-impl<T> ArrayDiffVar<Vec<T>> where T: 'static + Copy + PseudoField {
-  pub fn buf(dim: usize, batch_sz: usize) -> ArrayDiffVar<Vec<T>> {
-    ArrayDiffVar{
-      clock:    Cell::new(0),
-      vars:     vec![VarBlock::new(DefaultVarAllocator::new(move || {
-        let mut mem = Vec::with_capacity(dim * batch_sz);
-        mem.resize(dim * batch_sz, T::zero());
-        mem
-      }))],
-    }
-  }
-}
-
-impl<A> ArrayDiffVar<A> {
-  /*pub fn recursive(horizon: usize, trunc_horizon: Option<usize>) -> ArrayDiffVar<A> {
-    assert!(horizon >= 1);
-    if let Some(trunc_horizon) = trunc_horizon {
-      assert!(trunc_horizon >= 1);
-      assert!(trunc_horizon <= horizon);
-    }
+impl NodeId {
+  pub fn new() -> NodeId {
     unimplemented!();
-  }*/
-
-  pub fn _var(&self, t: usize) -> Rc<VarBlock<A>> {
-    self.vars[t].clone()
   }
+}
 
-  pub fn var(&self) -> Rc<VarBlock<A>> {
-    self.vars[self.clock.get()].clone()
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct TxnId(u64);
+
+impl TxnId {
+  pub fn new() -> TxnId {
+    unimplemented!();
   }
+}
 
-  pub fn prev_var(&self) -> Option<Rc<VarBlock<A>>> {
-    match self.clock.get() {
-      0   => None,
-      clk => Some(self.vars[clk-1].clone()),
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct EpochNr(u64);
+
+impl EpochNr {
+  pub fn new() -> EpochNr {
+    unimplemented!();
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Epoch {
+  pub root:     NodeId,
+  pub epoch_nr: EpochNr,
+}
+
+impl Epoch {
+  pub fn new(root: NodeId) -> Epoch {
+    Epoch{
+      root:     root,
+      epoch_nr: EpochNr::new(),
     }
   }
+}
 
-  pub fn reset_clock(&self) {
-    self.clock.set(0);
+pub struct OperatorStackEntry {
+  epoch:        Epoch,
+  push_count:   usize,
+  pop_count:    usize,
+}
+
+pub struct OperatorStack {
+  node_id:      NodeId,
+  in_degree:    usize,
+  curr_epoch:   Cell<Epoch>,
+  entries:      RefCell<Vec<OperatorStackEntry>>,
+}
+
+impl OperatorStack {
+  pub fn new(node_id: NodeId, in_degree: usize) -> OperatorStack {
+    unimplemented!();
   }
 
-  pub fn clock(&self) {
-    self.clock.set(self.clock.get() + 1);
+  pub fn push(&self, epoch: Epoch) -> usize {
+    let mut entries = self.entries.borrow_mut();
+    if !entries.is_empty() && epoch == entries.last().unwrap().epoch {
+      entries.last_mut().unwrap().push_count += 1;
+    } else {
+      entries.push(OperatorStackEntry{
+        epoch:      epoch,
+        push_count: 1,
+        pop_count:  0,
+      });
+    }
+    entries.last().unwrap().push_count
+  }
+
+  pub fn degree(&self, epoch: Epoch) -> usize {
+    let mut entries = self.entries.borrow();
+    assert!(!entries.is_empty());
+    let level = entries.len() - 1;
+    assert_eq!(epoch, entries[level].epoch);
+    entries[level].push_count
+  }
+
+  pub fn pop(&self, epoch: Epoch) -> usize {
+    let mut entries = self.entries.borrow_mut();
+    assert!(!entries.is_empty());
+    let level = entries.len() - 1;
+    assert_eq!(epoch, entries[level].epoch);
+    entries[level].pop_count += 1;
+    let saved_pop_count = entries[level].pop_count;
+    if entries[level].push_count == entries[level].pop_count {
+      entries.pop();
+    }
+    saved_pop_count
   }
 }
 
-pub fn param<W, A>(param: Param<W>) -> ArrayParam<W, A> {
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct DataRef {
+  pub node_id:  NodeId,
+}
+
+impl DataRef {
+  pub fn new() -> DataRef {
+    DataRef{node_id: NodeId::new()}
+  }
+}
+
+#[derive(Clone)]
+pub struct DataRefSet {
+  inner:    HashSet<DataRef>,
+  mask:     HashSet<DataRef>,
+}
+
+impl DataRefSet {
+  pub fn new() -> DataRefSet {
+    unimplemented!();
+  }
+
+  pub fn clear(&mut self) {
+    self.inner.clear();
+    self.mask.clear();
+  }
+
+  pub fn unmask_all(&mut self) {
+    self.mask.clear();
+  }
+
+  pub fn mask(&mut self, data_ref: DataRef) {
+    self.mask.insert(data_ref);
+  }
+}
+
+pub trait DiffOperator {
+  fn _id(&self) -> NodeId;
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&DiffOperator));
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&DiffOperator));
+
+  fn _data_sz(&self, ref_set: &mut DataRefSet) -> usize { 0 }
+  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {}
+  fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
+
+  fn _clear(&self, txn: TxnId) {}
+  fn _forward(&self, txn: TxnId);
+  fn _backward(&self, txn: TxnId, /*ref_set: &DataRefSet,*/ gauss_newton: bool) { unimplemented!(); }
+  fn _r_forward(&self, txn: TxnId, /*ref_set: &DataRefSet,*/ gauss_newton: bool) { unimplemented!(); }
+  fn _r_backward(&self, txn: TxnId, /*ref_set: &DataRefSet*/) { unimplemented!(); }
+  fn _clock(&self, txn: TxnId) { unimplemented!(); }
+
+  fn data_sz(&self, ref_set: &mut DataRefSet) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._data_sz(ref_set); });
+  }
+
+  fn load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._load(txn, ref_set, reader); });
+  }
+
+  fn store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._store(txn, ref_set, writer); });
+  }
+
+  fn clear(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |op| { op._clear(txn); });
+    self._pop(epoch, &mut |_op| {});
+  }
+
+  fn eval(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+  }
+
+  fn clock(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |op| { op._clock(txn); });
+    self._pop(epoch, &mut |_op| {});
+  }
+}
+
+pub trait DiffLoss: DiffOperator {
+  fn gradient(&self, txn: TxnId, /*ref_set: &DataRefSet*/) {
+    let epoch = Epoch::new(self._id());
+    self.clear(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, /*ref_set,*/ false); });
+  }
+
+  fn gauss_newton_vector_product(&self, txn: TxnId, /*ref_set: &DataRefSet*/) {
+    let epoch = Epoch::new(self._id());
+    self.clear(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |op| { op._r_forward(txn, /*ref_set,*/ true); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, /*ref_set,*/ true); });
+  }
+
+  fn hessian_vector_product(&self, txn: TxnId, /*ref_set: &DataRefSet*/) {
+    let epoch = Epoch::new(self._id());
+    self.clear(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |op| { op._r_forward(txn, /*ref_set,*/ false); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, /*ref_set,*/ false); });
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._r_backward(txn, /*ref_set*/); });
+  }
+}
+
+pub trait ArrayOp<A>: DiffOperator {
+  fn data(&self) -> Rc<ArrayData<A>>;
+}
+
+pub trait ArrayAllocator<A> {
+  fn alloc(&self) -> A;
+}
+
+pub fn alloc_fn<A, F>(f: F) -> FnArrayAllocator<A, F> where F: Fn() -> A {
   unimplemented!();
 }
 
-pub fn input<A>(batch_sz: usize, stride: usize) -> ArrayInput<A> {
-  unimplemented!();
+pub struct FnArrayAllocator<A, F> where F: Fn() -> A {
+  cons:     F,
 }
 
-pub fn input_dim<Idx, A>(batch_sz: usize, dim: Idx) -> ArrayInput<A> {
-  unimplemented!();
+pub struct TxnBuf<A> {
+  curr_txn: Cell<Option<TxnId>>,
+  writers:  RefCell<HashSet<NodeId>>,
+  buffer:   RefCell<Option<A>>,
 }
 
-pub fn add_join<S, IoBuf>(ops: Vec<(usize, Rc<DiffOperator<S, IoBuf>>)>) -> ArrayAddJoinOp {
-  unimplemented!();
+impl<A> TxnBuf<A> {
+  pub fn invalidate(&self, txn: TxnId, node: NodeId) -> bool {
+    let mut invalid = false;
+    let mut new_txn = false;
+    if self.curr_txn.get().is_none() {
+      invalid = true;
+      new_txn = true;
+    } else {
+      let curr_txn = self.curr_txn.get().unwrap();
+      if curr_txn != txn {
+        invalid = true;
+        new_txn = true;
+      } else {
+        invalid = !self.writers.borrow().contains(&node);
+      }
+    }
+    if new_txn {
+      self.curr_txn.set(None);
+      self.writers.borrow_mut().clear();
+    }
+    invalid
+  }
+
+  pub fn maybe_alloc<F>(&self, init: F) where F: Fn(&mut A) {
+    unimplemented!();
+  }
+
+  pub fn get(&self, txn: TxnId) -> Ref<A> {
+    let mut invalid = false;
+    if self.curr_txn.get().is_none() {
+      invalid = true;
+    } else {
+      let curr_txn = self.curr_txn.get().unwrap();
+      invalid = curr_txn != txn;
+    }
+    assert!(!invalid);
+    Ref::map(self.buffer.borrow(), |buf| {
+      if let Some(buf) = buf.as_ref() {
+        buf
+      } else {
+        panic!("trying to read from unallocated buffer");
+      }
+    })
+  }
+
+  pub fn get_mut(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
+    let mut new_txn = false;
+    if self.curr_txn.get().is_none() {
+      new_txn = true;
+    } else {
+      let curr_txn = self.curr_txn.get().unwrap();
+      new_txn = curr_txn != txn;
+    }
+    if new_txn {
+      self.curr_txn.set(Some(txn));
+      self.writers.borrow_mut().clear();
+    }
+    self.writers.borrow_mut().insert(node);
+    RefMut::map(self.buffer.borrow_mut(), |buf| {
+      if let Some(buf) = buf.as_mut() {
+        buf
+      } else {
+        panic!("trying to write to unallocated buffer");
+      }
+    })
+  }
+
+  pub fn maybe_get_mut(&self, txn: TxnId, node: NodeId) -> Option<RefMut<A>> {
+    let buf = self.buffer.borrow_mut();
+    if buf.is_none() {
+      None
+    } else {
+      Some(self.get_mut(txn, node))
+    }
+  }
 }
 
-pub trait ArrayDiffExt {
-  type T: Copy;
-
-  fn copy_split(self, num_copies: usize) -> Vec<(usize, Rc<ArrayCopySplitOp>)>;
-  fn scale_const<A, S>(self, c: Self::T) -> Rc<ArrayScaleConstOp<Self::T, A, S>>;
-}
-
-pub struct ArrayParam<W, A> {
-  node:     OperatorNode,
-  out:      Rc<ArrayDiffVar<A>>,
-  inner:    Rc<ParamBlock<W>>,
-}
-
-pub struct ArrayInput<A> {
-  node:     OperatorNode,
-  out:      Rc<ArrayDiffVar<A>>,
-  batch_sz: usize,
-  stride:   usize,
-}
-
-pub struct ArrayAddJoinOp {
-}
-
-pub struct ArrayCopySplitOp {
-}
-
-pub struct ArrayScaleConstOp<T, A, S> {
-  node:     OperatorNode,
-  in_op:    Rc<DiffOperator<S, [T]>>,
-  in_:      Rc<ArrayDiffVar<A>>,
-  out:      Rc<ArrayDiffVar<A>>,
-  scale_c:  T,
-}
-
-impl<T, A, S> ArrayScaleConstOp<T, A, S> {
-}
-
-/*impl<T> ArrayDiffExt for ArrayScaleConstOp<T> {
-  type T = T;
-}*/
-
-pub trait VectorDiffExt {
-  type T: Copy;
-
-  //fn inner_prod(self, rhs: Self::Vector) -> VectorInnerProdOp<Self::T>;
-  fn add<A, S>(self, bias: Param<Array1d<Self::T>>) -> Rc<VectorAddOp<Self::T, A, S>>;
-  fn linear<A, S>(self, out_chan: usize, weights: Param<Array2d<Self::T>>, bias: Option<Param<Array1d<Self::T>>>) -> Rc<VectorLinearOp<Self::T, A, S>>;
-
-  fn softmax_nll(self) -> Rc<VectorSoftmaxNLLLoss>;
-}
-
-pub struct VectorAddOp<T, A, S> where T: Copy {
-  node:     OperatorNode,
-  in_op:    Rc<DiffOperator<S, [T]>>,
-  in_:      Rc<ArrayDiffVar<A>>,
-  out:      Rc<ArrayDiffVar<A>>,
-  bias:     Rc<ParamBlock<Array1d<T>>>,
-}
-
-pub struct VectorLinearOp<T, A, S> where T: Copy {
-  node:     OperatorNode,
-  in_op:    Rc<DiffOperator<S, [T]>>,
-  in_:      Rc<ArrayDiffVar<A>>,
-  out:      Rc<ArrayDiffVar<A>>,
-  out_chan: usize,
-  weights:  Rc<ParamBlock<Array2d<T>>>,
-  bias:     Option<Rc<ParamBlock<Array1d<T>>>>,
-}
-
-pub struct VectorSoftmaxNLLLoss {
-}
-
-pub fn concat_join<S, IoBuf>(ops: Vec<(usize, Rc<DiffOperator<S, IoBuf>>)>) -> TensorConcatJoinOp {
-  unimplemented!();
-}
-
-pub trait TensorDiffExt {
-  type T: Copy;
-
-  fn conv2d(self, cfg: TensorConv<(usize, usize)>, weights: Param<Array4d<Self::T>>, bias: Option<Param<Array1d<Self::T>>>) -> TensorConv2dOp<Self::T>;
-  //fn scale2d(self, kernel: Param<TensorConv<(usize, usize)>, Array4d<Self::T>>) -> TensorScale2dOp;
-}
-
-pub struct TensorConcatJoinOp {
-}
-
-pub struct TensorConv<Idx> {
-  pub kernel_dim:   Idx,
-  pub stride_dim:   Idx,
-  pub pad_dim:      Idx,
-  pub out_chan:     usize,
-  //pub bias:         bool,
-}
-
-pub struct TensorConv2dOp<T> where T: Copy {
-  cfg:      TensorConv<(usize, usize)>,
-  weights:  Rc<ParamBlock<Array4d<T>>>,
-  bias:     Option<Rc<ParamBlock<Array1d<T>>>>,
+pub struct ArrayData<A> {
+  allocator:    Rc<ArrayAllocator<A>>,
+  pub val:      TxnBuf<A>,
+  pub grad:     TxnBuf<A>,
+  pub r_val:    TxnBuf<A>,
+  pub r_grad:   TxnBuf<A>,
 }
