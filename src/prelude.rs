@@ -1,4 +1,4 @@
 pub use super::{
   NodeId, TxnId, EpochNr, Epoch, OperatorStack, DataRef, DataRefSet,
-  DiffOperator, ArrayOp, TxnBuf, ArrayData,
+  DiffOperator, DiffScalarLoss, ArrayOp, ArrayStorage, ArrayData,
 };
