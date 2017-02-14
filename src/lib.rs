@@ -6,7 +6,7 @@ extern crate densearray;
 
 extern crate libc;
 
-pub use DataKind::{Val, Grad, RVal, RGrad};
+pub use DataKind::*;
 
 //use arithmetic::*;
 //use densearray::prelude::*;
@@ -14,6 +14,7 @@ pub use DataKind::{Val, Grad, RVal, RGrad};
 use std::any::{Any};
 use std::cell::{Cell, RefCell, Ref, RefMut};
 use std::collections::{HashSet};
+use std::ops::{Deref, DerefMut};
 use std::rc::{Rc};
 
 pub mod ffi;
@@ -151,6 +152,7 @@ pub enum DataKind {
   Grad,
   RVal,
   RGrad,
+  Grad2,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -224,6 +226,7 @@ pub trait AutodiffOperator {
   fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
   fn _store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
   fn _store_r_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
+  fn _store_grad2(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
   fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet);
 
   fn _init(&self, txn: TxnId) {}
@@ -231,6 +234,7 @@ pub trait AutodiffOperator {
   fn _backward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
   fn _r_forward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
   fn _r_backward(&self, txn: TxnId) { unimplemented!(); }
+  fn _backward2(&self, txn: TxnId) { unimplemented!(); }
 
   fn _reset_clock(&self) {}
   fn _set_clock(&self, clk: usize) { unimplemented!(); }
@@ -245,43 +249,57 @@ pub trait AutodiffOperator {
     size
   }
 
-  fn load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut IoBuf) {
     let epoch = Epoch::new(self._id());
     ref_set.unmask_all();
+    reader.reset();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._load(txn, ref_set, reader); });
+    self._pop(epoch, &mut |op| { op._load(txn, ref_set, reader.as_any()); });
     ref_set.unmask_all();
   }
 
-  fn load_r_val(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn load_r_val(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut IoBuf) {
     let epoch = Epoch::new(self._id());
     ref_set.unmask_all();
+    reader.reset();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._load_r_val(txn, ref_set, reader); });
+    self._pop(epoch, &mut |op| { op._load_r_val(txn, ref_set, reader.as_any()); });
     ref_set.unmask_all();
   }
 
-  fn store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut IoBuf) {
     let epoch = Epoch::new(self._id());
     ref_set.unmask_all();
+    writer.reset();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store(txn, ref_set, writer); });
+    self._pop(epoch, &mut |op| { op._store(txn, ref_set, writer.as_any()); });
     ref_set.unmask_all();
   }
 
-  fn store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut IoBuf) {
     let epoch = Epoch::new(self._id());
     ref_set.unmask_all();
+    writer.reset();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store_grad(txn, ref_set, writer); });
+    self._pop(epoch, &mut |op| { op._store_grad(txn, ref_set, writer.as_any()); });
     ref_set.unmask_all();
   }
 
-  fn store_r_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn store_r_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut IoBuf) {
     let epoch = Epoch::new(self._id());
     ref_set.unmask_all();
+    writer.reset();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store_r_grad(txn, ref_set, writer); });
+    self._pop(epoch, &mut |op| { op._store_r_grad(txn, ref_set, writer.as_any()); });
+    ref_set.unmask_all();
+  }
+
+  fn store_grad2(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut IoBuf) {
+    let epoch = Epoch::new(self._id());
+    ref_set.unmask_all();
+    writer.reset();
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._store_grad2(txn, ref_set, writer.as_any()); });
     ref_set.unmask_all();
   }
 
@@ -359,16 +377,85 @@ pub trait AutodiffObjective: AutodiffOperator {
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| { op._r_backward(txn, /*ref_set*/); });
   }
+
+  fn hessian_diagonal(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._set_source(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward2(txn); });
+  }
 }
 
-pub struct FlatReader<A> {
+pub trait IoBuf: Any {
+  fn reset(&mut self);
+  fn as_any(&mut self) -> &mut Any;
+}
+
+pub struct CursorBuf<A> {
   buffer:   A,
   offset:   usize,
 }
 
-pub struct FlatWriter<A> {
-  buffer:   A,
-  offset:   usize,
+pub trait CursorBufExt<'a> {
+  type Ref: ?Sized;
+  type Mut: ?Sized;
+
+  fn read_buf(&'a mut self, length: usize) -> Self::Ref;
+  fn write_buf(&'a mut self, length: usize) -> Self::Mut;
+}
+
+impl<A> CursorBuf<A> {
+  pub fn new(buffer: A) -> Self {
+    CursorBuf{
+      buffer:   buffer,
+      offset:   0,
+    }
+  }
+}
+
+impl<A> Deref for CursorBuf<A> {
+  type Target = A;
+
+  fn deref(&self) -> &A {
+    &self.buffer
+  }
+}
+
+impl<A> DerefMut for CursorBuf<A> {
+  fn deref_mut(&mut self) -> &mut A {
+    &mut self.buffer
+  }
+}
+
+impl<A> IoBuf for CursorBuf<A> where A: 'static {
+  fn reset(&mut self) {
+    self.offset = 0;
+  }
+
+  fn as_any(&mut self) -> &mut Any {
+    self
+  }
+}
+
+impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
+  type Ref = &'a [T];
+  type Mut = &'a mut [T];
+
+  fn read_buf(&'a mut self, length: usize) -> &'a [T] {
+    let buf = &self.buffer[self.offset .. self.offset + length];
+    self.offset += length;
+    buf
+  }
+
+  fn write_buf(&'a mut self, length: usize) -> &'a mut [T] {
+    let buf = &mut self.buffer[self.offset .. self.offset + length];
+    self.offset += length;
+    buf
+  }
 }
 
 pub trait ArrayOp<A>: AutodiffOperator {
@@ -570,6 +657,7 @@ pub struct ArrayData</*Idx,*/ A> {
   pub grad:     TxnData<A>,
   pub r_val:    TxnData<A>,
   pub r_grad:   TxnData<A>,
+  pub grad2:    TxnData<A>,
 }
 
 impl</*Idx,*/ A> ArrayData</*Idx,*/ A> {
@@ -582,6 +670,7 @@ impl</*Idx,*/ A> ArrayData</*Idx,*/ A> {
       grad:     TxnData::new(Grad, clk_horizon, alloc.clone()),
       r_val:    TxnData::new(RVal, clk_horizon, alloc.clone()),
       r_grad:   TxnData::new(RGrad, clk_horizon, alloc.clone()),
+      grad2:    TxnData::new(Grad2, clk_horizon, alloc.clone()),
     })
   }
 
@@ -598,6 +687,7 @@ impl</*Idx,*/ A> ArrayData</*Idx,*/ A> {
     self.grad.reset_clock();
     self.r_val.reset_clock();
     self.r_grad.reset_clock();
+    self.grad2.reset_clock();
   }
 
   pub fn set_clock_all(&self, clk: usize) {
@@ -605,6 +695,7 @@ impl</*Idx,*/ A> ArrayData</*Idx,*/ A> {
     self.grad.set_clock(clk);
     self.r_val.set_clock(clk);
     self.r_grad.set_clock(clk);
+    self.grad2.set_clock(clk);
   }
 
   pub fn rollover_all(&self, txn: TxnId, ref_set: &mut DataRefSet) {
@@ -612,5 +703,6 @@ impl</*Idx,*/ A> ArrayData</*Idx,*/ A> {
     self.grad.rollover(txn, ref_set);
     self.r_val.rollover(txn, ref_set);
     self.r_grad.rollover(txn, ref_set);
+    self.grad2.rollover(txn, ref_set);
   }
 }

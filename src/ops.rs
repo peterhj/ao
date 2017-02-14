@@ -113,8 +113,11 @@ impl AutodiffOperator for Var<Array1d<f32>> {
           VEC_F32_TYPEID => {}
           _ => {}
         }*/
-        if let Some(reader) = reader.downcast_mut::<Vec<f32>>() {
-          self.data.val.get_mut(txn, node).as_mut_slice().copy_from_slice(reader);
+        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+          let mut val = self.data.val.get_mut(txn, node);
+          let val_len = val.dim();
+          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          val.as_view_mut().copy(reader.read_buf(val_len).flatten());
         } else {
           unimplemented!();
         }
@@ -125,8 +128,11 @@ impl AutodiffOperator for Var<Array1d<f32>> {
   fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
     let node = self._id();
     if ref_set.contains(&self.data.val._ref()) {
-      if let Some(writer) = writer.downcast_mut::<Vec<f32>>() {
-        writer.copy_from_slice(self.data.val.get(txn, node).as_slice());
+      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        let mut val = self.data.val.get(txn, node);
+        let val_len = val.dim();
+        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        writer.write_buf(val_len).flatten_mut().copy(val.as_view());
       } else {
         unimplemented!();
       }
@@ -136,10 +142,49 @@ impl AutodiffOperator for Var<Array1d<f32>> {
   fn _store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
     let node = self._id();
     if ref_set.contains(&self.data.grad._ref()) {
-      if let Some(writer) = writer.downcast_mut::<Vec<f32>>() {
-        writer.copy_from_slice(self.data.grad.get(txn, node).as_slice());
+      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        let mut grad = self.data.grad.get(txn, node);
+        let grad_len = grad.dim();
+        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
       } else {
         unimplemented!();
+      }
+    }
+  }
+}
+
+impl AutodiffOperator for Var<Array2d<f32>> {
+  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+    let node = self._id();
+    if ref_set.contains(&self.data.val._ref()) {
+      if self.data.val.write(txn, node) {
+        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+          let mut val = self.data.val.get_mut(txn, node);
+          let val_len = val.dim().flat_len();
+          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
+        } else {
+          unimplemented!();
+        }
+      }
+    }
+  }
+}
+
+impl AutodiffOperator for Var<Array4d<f32>> {
+  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+    let node = self._id();
+    if ref_set.contains(&self.data.val._ref()) {
+      if self.data.val.write(txn, node) {
+        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+          let mut val = self.data.val.get_mut(txn, node);
+          let val_len = val.dim().flat_len();
+          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
+        } else {
+          unimplemented!();
+        }
       }
     }
   }
@@ -512,33 +557,36 @@ pub struct JoinOp<A, JoinF> {
 pub struct AxisJoinKernel;
 pub struct SumJoinKernel;
 
-pub trait AxisJoinExt<A> {
-  fn axis_join(xs: Vec<Rc<ArrayOp<A>>>) -> Rc<JoinOp<A, AxisJoinKernel>>;
+pub trait AxisJoinExt<Op, A> where Op: ArrayOp<A> {
+  fn axis_join(xs: Vec<Rc<Op>>) -> Rc<JoinOp<A, AxisJoinKernel>>;
 }
 
-pub trait AddExt<A> {
-  fn add(&self, x: Rc<ArrayOp<A>>) -> Rc<JoinOp<A, SumJoinKernel>>;
+pub fn axis_join<Op, A>(xs: Vec<Rc<Op>>) -> Rc<JoinOp<A, AxisJoinKernel>> where Rc<Op>: AxisJoinExt<Op, A>, Op: ArrayOp<A> {
+  <Rc<Op> as AxisJoinExt<Op, A>>::axis_join(xs)
 }
 
-pub trait SumExt<A> {
-  fn sum(xs: Vec<Rc<ArrayOp<A>>>) -> Rc<JoinOp<A, SumJoinKernel>>;
+pub trait SumExt<Op, A> where Op: ArrayOp<A> {
+  fn sum(xs: Vec<Rc<Op>>) -> Rc<JoinOp<A, SumJoinKernel>>;
+  fn add(&self, x: Rc<Op>) -> Rc<JoinOp<A, SumJoinKernel>>;
 }
 
-impl<S> AxisJoinExt<Array1d<f32, S>> for JoinOp<Array1d<f32, S>, AxisJoinKernel> where S: DerefMut<Target=[f32]> {
-  fn axis_join(xs: Vec<Rc<ArrayOp<Array1d<f32, S>>>>) -> Rc<Self> {
+pub fn sum<Op, A>(xs: Vec<Rc<Op>>) -> Rc<JoinOp<A, SumJoinKernel>> where Rc<Op>: SumExt<Op, A>, Op: ArrayOp<A> {
+  <Rc<Op> as SumExt<Op, A>>::sum(xs)
+}
+
+impl<Op, S> AxisJoinExt<Op, Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
+  fn axis_join(xs: Vec<Rc<Op>>) -> Rc<JoinOp<Array1d<f32, S>, AxisJoinKernel>> {
     unimplemented!();
   }
 }
 
-impl<S> AddExt<Array1d<f32, S>> for Rc<ArrayOp<Array1d<f32, S>>> where S: DerefMut<Target=[f32]> {
-  fn add(&self, x: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<JoinOp<Array1d<f32, S>, SumJoinKernel>> {
+impl<Op, S> SumExt<Op, Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
+  fn sum(xs: Vec<Rc<Op>>) -> Rc<JoinOp<Array1d<f32, S>, SumJoinKernel>> where S: DerefMut<Target=[f32]> {
     unimplemented!();
   }
-}
 
-impl<S> SumExt<Array1d<f32, S>> for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<Target=[f32]> {
-  fn sum(xs: Vec<Rc<ArrayOp<Array1d<f32, S>>>>) -> Rc<Self> {
-    unimplemented!();
+  fn add(&self, x: Rc<Op>) -> Rc<JoinOp<Array1d<f32, S>, SumJoinKernel>> {
+    Self::sum(vec![self.clone(), x])
   }
 }
 
@@ -1098,6 +1146,7 @@ pub struct SequentialJoinOp<A, B, JoinF> {
   stack:    OperatorStack,
   x:    Rc<ArrayOp<A>>,
   y:    Rc<ArrayData<B>>,
+  curr_clk: Cell<usize>,
   kernel:   JoinF,
 }
 
@@ -1126,8 +1175,9 @@ impl AutodiffOperator for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel
 
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
+    let clk = self.curr_clk.get();
     let x = self.x.data();
-    let x_val = x.val.get(txn, node);
+    let x_val = x.val.get_clk(clk, txn, node);
     let batch_sz = x_val.batch_size();
     if self.y.val.accumulate(txn, node, |val| val.reshape_mut(batch_sz).set_constant(0.0)) {
       self.y.val.get_mut(txn, node).reshape_mut(batch_sz)
@@ -1137,8 +1187,9 @@ impl AutodiffOperator for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
+    let clk = self.curr_clk.get();
     let x = self.x.data();
-    let y_grad = self.y.grad.get(txn, node);
+    let y_grad = self.y.grad.get_clk(clk, txn, node);
     let batch_sz = y_grad.batch_size();
     if x.grad.accumulate(txn, node, |grad| grad.reshape_mut(batch_sz).set_constant(0.0)) {
       x.grad.get_mut(txn, node).reshape_mut(batch_sz)
@@ -1147,9 +1198,11 @@ impl AutodiffOperator for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel
   }
 
   fn _reset_clock(&self) {
+    self.curr_clk.set(0);
   }
 
-  fn _set_clock(&self, _clk: usize) {
+  fn _set_clock(&self, new_clk: usize) {
+    self.curr_clk.set(new_clk);
   }
 }
 
@@ -1240,16 +1293,20 @@ impl LikelihoodLossLink for KL2LossLink {}
 impl LikelihoodLossLink for LRLossLink {}
 impl LikelihoodLossLink for NLLLossLink {}
 
-pub struct SoftmaxLoss<A, Target, Link> {
+pub struct SoftmaxLoss<A, Target, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x:        Rc<ArrayOp<A>>,
   target:   Option<Rc<ArrayOp<Target>>>,
-  loss:     Rc<ArrayData<A>>,
+  loss:     Rc<ArrayData<Loss>>,
   link:     Link,
 }
 
-impl<S, Target, Link> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Target, Link> where S: DerefMut<Target=[f32]>, Link: LikelihoodLossLink {
+pub trait SoftmaxKLLossExt<A, L> {
+  fn softmax_kl2_loss(x: Rc<ArrayOp<A>>, target: Rc<ArrayOp<A>>) -> Rc<SoftmaxLoss<A, A, L, KL2LossLink>>;
+}
+
+impl<S, Target, Loss, Link> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Target, Loss, Link> where S: DerefMut<Target=[f32]>, Link: LikelihoodLossLink {
   default fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1283,7 +1340,7 @@ impl<S, Target, Link> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Tar
   }
 }
 
-impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32, S>, KL2LossLink> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32, S>, Batch<f32>, KL2LossLink> where S: DerefMut<Target=[f32]> {
   fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }
@@ -1301,7 +1358,7 @@ impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32,
   }
 }
 
-impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Vec<(u32, f32)>, LRLossLink> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Batch<(u32, f32)>, Batch<f32>, LRLossLink> where S: DerefMut<Target=[f32]> {
   fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }
@@ -1319,7 +1376,7 @@ impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Vec<(u32, f32)>, 
   }
 }
 
-impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Vec<u32>, NLLLossLink> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOperator for SoftmaxLoss<BatchArray1d<f32, S>, Batch<u32>, Batch<f32>, NLLLossLink> where S: DerefMut<Target=[f32]> {
   fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }
