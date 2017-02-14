@@ -1,7 +1,10 @@
+//#![feature(get_type_id)]
 #![feature(specialization)]
 
 extern crate densearray;
 #[cfg(cuda)] extern crate devicemem_cuda;
+
+extern crate libc;
 
 pub use DataKind::{Val, Grad, RVal, RGrad};
 
@@ -13,6 +16,7 @@ use std::cell::{Cell, RefCell, Ref, RefMut};
 use std::collections::{HashSet};
 use std::rc::{Rc};
 
+pub mod ffi;
 pub mod ops;
 #[cfg(cuda)] pub mod ops_cuda;
 pub mod prelude;
@@ -209,12 +213,12 @@ impl DataRefSet {
   }
 }
 
-pub trait DiffOperator {
+pub trait AutodiffOperator {
   fn _id(&self) -> NodeId;
-  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&DiffOperator));
-  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&DiffOperator));
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOperator));
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOperator));
 
-  fn _data_sz(&self, ref_set: &mut DataRefSet) -> usize { 0 }
+  fn _data_size(&self, txn: TxnId, ref_set: &mut DataRefSet) -> usize { 0 }
   fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {}
   fn _load_r_val(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {}
   fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
@@ -222,19 +226,22 @@ pub trait DiffOperator {
   fn _store_r_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
   fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet);
 
-  //fn _clear(&self, txn: TxnId) {}
   fn _init(&self, txn: TxnId) {}
   fn _forward(&self, txn: TxnId);
   fn _backward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
   fn _r_forward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
   fn _r_backward(&self, txn: TxnId) { unimplemented!(); }
-  fn _clock(&self, txn: TxnId) { unimplemented!(); }
 
-  fn data_sz(&self, ref_set: &mut DataRefSet) -> usize {
+  fn _reset_clock(&self) {}
+  fn _set_clock(&self, clk: usize) { unimplemented!(); }
+
+  fn data_size(&self, txn: TxnId, ref_set: &mut DataRefSet) -> usize {
     let epoch = Epoch::new(self._id());
     let mut size = 0;
+    ref_set.unmask_all();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { size += op._data_sz(ref_set); });
+    self._pop(epoch, &mut |op| { size += op._data_size(txn, ref_set); });
+    ref_set.unmask_all();
     size
   }
 
@@ -304,14 +311,20 @@ pub trait DiffOperator {
     self._pop(epoch, &mut |_op| {});
   }
 
-  fn clock(&self, txn: TxnId) {
+  fn reset_clock(&self) {
     let epoch = Epoch::new(self._id());
-    self._push(epoch, &mut |op| { op._clock(txn); });
+    self._push(epoch, &mut |op| { op._reset_clock(); });
+    self._pop(epoch, &mut |_op| {});
+  }
+
+  fn set_clock(&self, clk: usize) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |op| { op._set_clock(clk); });
     self._pop(epoch, &mut |_op| {});
   }
 }
 
-pub trait DiffScalarLoss: DiffOperator {
+pub trait AutodiffObjective: AutodiffOperator {
   fn _set_source(&self, txn: TxnId);
 
   fn gradient(&self, txn: TxnId) {
@@ -358,7 +371,7 @@ pub struct FlatWriter<A> {
   offset:   usize,
 }
 
-pub trait ArrayOp<A>: DiffOperator {
+pub trait ArrayOp<A>: AutodiffOperator {
   fn data(&self) -> Rc<ArrayData<A>>;
 }
 
@@ -430,8 +443,16 @@ impl<A> TxnData<A> {
     self.curr_clk.set(0);
   }
 
-  pub fn step_clock(&self) {
-    self.curr_clk.set(self.curr_clk.get() + 1);
+  pub fn set_clock(&self, clk: usize) {
+    self.curr_clk.set(clk);
+  }
+
+  pub fn invalidate(&self) {
+    let clk = self.curr_clk.get();
+    let buf = &self.clk_bufs[clk];
+    buf.curr_txn.set(None);
+    buf.readers.borrow_mut().clear();
+    buf.writers.borrow_mut().clear();
   }
 
   pub fn rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
@@ -446,7 +467,11 @@ impl<A> TxnData<A> {
     buf.writers.borrow_mut().clear();
   }
 
-  pub fn write<F>(&self, txn: TxnId, node: NodeId, init: F) -> bool where F: Fn(&mut A) {
+  pub fn write(&self, txn: TxnId, node: NodeId) -> bool {
+    self.accumulate(txn, node, |_| {})
+  }
+
+  pub fn accumulate<F>(&self, txn: TxnId, node: NodeId, init: F) -> bool where F: Fn(&mut A) {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
     let mut incomplete_write = false;
@@ -478,6 +503,18 @@ impl<A> TxnData<A> {
 
   pub fn get(&self, txn: TxnId, node: NodeId) -> Ref<A> {
     let clk = self.curr_clk.get();
+    self.get_clk(clk, txn, node)
+  }
+
+  pub fn get_prev(&self, txn: TxnId, node: NodeId) -> Option<Ref<A>> {
+    let clk = self.curr_clk.get();
+    match clk {
+      0   => None,
+      clk => Some(self.get_clk(clk - 1, txn, node)),
+    }
+  }
+
+  pub fn get_clk(&self, clk: usize, txn: TxnId, node: NodeId) -> Ref<A> {
     let buf = &self.clk_bufs[clk];
     let mut new_txn = false;
     if buf.curr_txn.get().is_none() {
@@ -496,31 +533,6 @@ impl<A> TxnData<A> {
         panic!("trying to read from unallocated buffer");
       }
     })
-  }
-
-  pub fn get_prev(&self, txn: TxnId, node: NodeId) -> Option<Ref<A>> {
-    let clk = self.curr_clk.get();
-    if clk == 0 {
-      return None;
-    }
-    let buf = &self.clk_bufs[clk-1];
-    let mut new_txn = false;
-    if buf.curr_txn.get().is_none() {
-      new_txn = true;
-    } else {
-      let curr_txn = buf.curr_txn.get().unwrap();
-      new_txn = curr_txn != txn;
-    }
-    assert!(!new_txn);
-    assert!(!buf.writers.borrow().contains(&node));
-    buf.readers.borrow_mut().insert(node);
-    Some(Ref::map(buf.buffer.borrow(), |buffer| {
-      if let Some(buffer) = buffer.as_ref() {
-        buffer
-      } else {
-        panic!("trying to read from unallocated buffer");
-      }
-    }))
   }
 
   pub fn get_mut(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
@@ -581,18 +593,18 @@ impl</*Idx,*/ A> ArrayData</*Idx,*/ A> {
     self.clk_horizon
   }
 
-  pub fn reset_all(&self) {
+  pub fn reset_clock_all(&self) {
     self.val.reset_clock();
     self.grad.reset_clock();
     self.r_val.reset_clock();
     self.r_grad.reset_clock();
   }
 
-  pub fn step_all(&self) {
-    self.val.step_clock();
-    self.grad.step_clock();
-    self.r_val.step_clock();
-    self.r_grad.step_clock();
+  pub fn set_clock_all(&self, clk: usize) {
+    self.val.set_clock(clk);
+    self.grad.set_clock(clk);
+    self.r_val.set_clock(clk);
+    self.r_grad.set_clock(clk);
   }
 
   pub fn rollover_all(&self, txn: TxnId, ref_set: &mut DataRefSet) {
