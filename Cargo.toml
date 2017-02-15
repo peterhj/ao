@@ -8,12 +8,19 @@ build = "build.rs"
 name = "arraydiff"
 path = "src/lib.rs"
 
+[features]
+default = []
+cuda = []
+
 [build-dependencies]
 gcc = "*"
 walkdir = "*"
 
 [dependencies]
+libc = "*"
+rand = "*"
 arithmetic = { path = "../libarithmetic" }
 densearray = "*"
-libc = "*"
+devicemem_cuda = { path = "../libdevicemem_cuda" }
 operator = { path = "../liboperator" }
+rng = "*"

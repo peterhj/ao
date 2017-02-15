@@ -1,16 +1,21 @@
+#![feature(conservative_impl_trait)]
 //#![feature(get_type_id)]
 #![feature(specialization)]
 
 extern crate densearray;
-#[cfg(cuda)] extern crate devicemem_cuda;
+#[cfg(feature = "cuda")] extern crate devicemem_cuda;
+extern crate rng;
 
 extern crate libc;
+extern crate rand;
 
 pub use DataKind::*;
 
 //use arithmetic::*;
 //use densearray::prelude::*;
 
+use rand::{Rng, SeedableRng, thread_rng};
+use rand::chacha::{ChaChaRng};
 use std::any::{Any};
 use std::cell::{Cell, RefCell, Ref, RefMut};
 use std::collections::{HashSet};
@@ -19,7 +24,7 @@ use std::rc::{Rc};
 
 pub mod ffi;
 pub mod ops;
-#[cfg(cuda)] pub mod ops_cuda;
+//#[cfg(feature = "cuda")] pub mod ops_cuda;
 pub mod prelude;
 
 thread_local!(static NODE_ID_COUNTER: Cell<u64> = Cell::new(0));
@@ -215,10 +220,12 @@ impl DataRefSet {
   }
 }
 
-pub trait AutodiffOperator {
+pub trait AutodiffOp {
+  fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op.clone() }
+
   fn _id(&self) -> NodeId;
-  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOperator));
-  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOperator));
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
 
   fn _data_size(&self, txn: TxnId, ref_set: &mut DataRefSet) -> usize { 0 }
   fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {}
@@ -229,7 +236,7 @@ pub trait AutodiffOperator {
   fn _store_grad2(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {}
   fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet);
 
-  fn _init(&self, txn: TxnId) {}
+  fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {}
   fn _forward(&self, txn: TxnId);
   fn _backward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
   fn _r_forward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
@@ -303,10 +310,13 @@ pub trait AutodiffOperator {
     ref_set.unmask_all();
   }
 
-  fn init(&self, txn: TxnId) {
+  fn init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
     let epoch = Epoch::new(self._id());
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._init(txn); });
+    self._pop(epoch, {
+      let seed_rng = seed_rng.clone();
+      &mut move |op| { op._init(txn, seed_rng.clone()); }
+    });
   }
 
   /*fn clear(&self, txn: TxnId) {
@@ -342,7 +352,7 @@ pub trait AutodiffOperator {
   }
 }
 
-pub trait AutodiffObjective: AutodiffOperator {
+pub trait AutodiffObjective: AutodiffOp {
   fn _set_source(&self, txn: TxnId);
 
   fn gradient(&self, txn: TxnId) {
@@ -388,6 +398,26 @@ pub trait AutodiffObjective: AutodiffOperator {
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| { op._backward2(txn); });
   }
+}
+
+pub fn init_master_rng() -> (Rc<RefCell<ChaChaRng>>, Vec<u32>) {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(thread_rng().next_u32());
+  }
+  assert_eq!(8, seed.len());
+  let rng = Rc::new(RefCell::new(ChaChaRng::from_seed(&seed)));
+  (rng, seed)
+}
+
+pub fn init_seed_rng(master_rng: &mut ChaChaRng) -> Rc<RefCell<ChaChaRng>> {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(master_rng.next_u32());
+  }
+  assert_eq!(8, seed.len());
+  let rng = Rc::new(RefCell::new(ChaChaRng::from_seed(&seed)));
+  rng
 }
 
 pub trait IoBuf: Any {
@@ -458,7 +488,8 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
   }
 }
 
-pub trait ArrayOp<A>: AutodiffOperator {
+pub trait ArrayOp<A>: AutodiffOp {
+  fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op.clone() }
   fn data(&self) -> Rc<ArrayData<A>>;
 }
 
@@ -470,6 +501,18 @@ impl ArrayStorage<usize> for Vec<f32> {
   fn alloc(dim: usize) -> Self {
     let mut buf = Vec::with_capacity(dim);
     buf.resize(dim, 0.0);
+    buf
+  }
+}
+
+pub trait BatchArrayStorage<Idx> {
+  fn alloc(dim: Idx, batch_sz: usize) -> Self where Self: Sized;
+}
+
+impl BatchArrayStorage<usize> for Vec<f32> {
+  fn alloc(dim: usize, batch_sz: usize) -> Self {
+    let mut buf = Vec::with_capacity(dim * batch_sz);
+    buf.resize(dim * batch_sz, 0.0);
     buf
   }
 }
