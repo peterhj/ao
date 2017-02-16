@@ -32,7 +32,7 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<DeviceMem<T>> where T: 'a + Copy {
 }
 
 impl ArrayOp<DeviceArray1d<f32>> for ArraySrc<DeviceArray1d<f32>> {
-  fn data(&self) -> Rc<ArrayData<DeviceArray1d<f32>>> {
+  fn data(&self) -> ArrayDataNew<DeviceArray1d<f32>> {
     self.data.clone()
   }
 }
@@ -41,7 +41,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.write(txn, node) {
+      if self.data.val.overwrite(txn, node) {
         if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
           let val_len = val.dim();
@@ -128,7 +128,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
 }
 
 impl ArrayOp<DeviceArray2d<f32>> for ArraySrc<DeviceArray2d<f32>> {
-  fn data(&self) -> Rc<ArrayData<DeviceArray2d<f32>>> {
+  fn data(&self) -> ArrayDataNew<DeviceArray2d<f32>> {
     self.data.clone()
   }
 }
@@ -137,7 +137,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.write(txn, node) {
+      if self.data.val.overwrite(txn, node) {
         if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
           let val_len = val.dim().flat_len();
@@ -224,7 +224,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
 }
 
 impl ArrayOp<DeviceArray4d<f32>> for ArraySrc<DeviceArray4d<f32>> {
-  fn data(&self) -> Rc<ArrayData<DeviceArray4d<f32>>> {
+  fn data(&self) -> ArrayDataNew<DeviceArray4d<f32>> {
     self.data.clone()
   }
 }
@@ -233,7 +233,7 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.write(txn, node) {
+      if self.data.val.overwrite(txn, node) {
         if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
           let val_len = val.dim().flat_len();
