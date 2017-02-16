@@ -177,10 +177,6 @@ pub struct Var {
 }
 
 impl Var {
-  /*pub fn new() -> Var {
-    Var{node_id: NodeId::new()}
-  }*/
-
   pub fn new(kind: VarKind) -> Var {
     Var{
       node_id:  NodeId::new(),
@@ -523,12 +519,11 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
 
 pub trait ArrayOp<A>: AutodiffOp {
   fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op.clone() }
-  //fn data(&self) -> Rc<ArrayData<A>>;
   fn data(&self) -> ArrayDataNew<A>;
 }
 
-pub trait ArrayObjective<A>: ArrayOp<A> + AutodiffObjective {
-}
+/*pub trait ArrayObjective<A>: ArrayOp<A> + AutodiffObjective {
+}*/
 
 pub trait ArrayStorage<Idx> {
   fn alloc(dim: Idx) -> Self where Self: Sized;
@@ -557,7 +552,7 @@ impl BatchArrayStorage<usize> for Vec<f32> {
 pub struct ArrayVarBuf<A> {
   clk:      usize,
   curr_txn: Cell<Option<TxnId>>,
-  readers:  RefCell<HashSet<NodeId>>,
+  reads:  RefCell<HashSet<NodeId>>,
   writers:  RefCell<HashSet<NodeId>>,
   writes:       RefCell<HashMap<NodeId, Symbol>>,
   read_writes:  RefCell<HashSet<(NodeId, Symbol)>>,
@@ -570,7 +565,7 @@ impl<A> ArrayVarBuf<A> {
     ArrayVarBuf{
       clk:      clk,
       curr_txn: Cell::new(None),
-      readers:  RefCell::new(HashSet::new()),
+      reads:  RefCell::new(HashSet::new()),
       writers:  RefCell::new(HashSet::new()),
       writes:       RefCell::new(HashMap::new()),
       read_writes:  RefCell::new(HashSet::new()),
@@ -605,6 +600,9 @@ impl<A> ArrayVarNew<A> {
     }
   }
 
+  /// Clone this variable "by reference," but also assign it a unique symbol.
+  /// Each instance of the same `ArrayVar` should have a unique symbol in order
+  /// to distinguish different operands.
   pub fn dup(&self, new_symbol: Symbol) -> Self {
     ArrayVarNew{
       symbol:   new_symbol,
@@ -633,7 +631,7 @@ impl<A> ArrayVarNew<A> {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
     buf.curr_txn.set(None);
-    buf.readers.borrow_mut().clear();
+    buf.reads.borrow_mut().clear();
     buf.writes.borrow_mut().clear();
     buf.read_writes.borrow_mut().clear();
     buf.coarse_rws.borrow_mut().clear();
@@ -649,21 +647,14 @@ impl<A> ArrayVarNew<A> {
     } else {
       buf.curr_txn.set(None);
     }
-    buf.readers.borrow_mut().clear();
+    buf.reads.borrow_mut().clear();
     buf.writes.borrow_mut().clear();
     buf.read_writes.borrow_mut().clear();
     buf.coarse_rws.borrow_mut().clear();
   }
 
   /// Query this variable's availability to be overwritten,
-  /// i.e. exclusive write.
-  ///
-  /// Exclusive writes satisfy the following rules:
-  /// - An exclusive write on a variable is mutually exclusive with
-  ///   reads and read-writes.
-  /// - An exclusive write can be performed on a variable by only one
-  ///   operand symbol; attempting to exclusively write to the same
-  ///   variable using two different symbols is illegal.
+  /// i.e. exclusive write. See `.get_excl()` for details.
   pub fn overwrite(&self, txn: TxnId, node: NodeId) -> bool {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
@@ -678,7 +669,7 @@ impl<A> ArrayVarNew<A> {
         incomplete_write = true;
         new_txn = true;
       } else {
-        assert!(!buf.readers.borrow().contains(&node));
+        assert!(!buf.reads.borrow().contains(&node));
         assert!(!buf.coarse_rws.borrow().contains(&node));
         let written = buf.writes.borrow().contains_key(&node);
         if written {
@@ -689,7 +680,7 @@ impl<A> ArrayVarNew<A> {
     }
     if new_txn {
       buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
+      buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
@@ -703,11 +694,7 @@ impl<A> ArrayVarNew<A> {
   }
 
   /// Query this variable's availability for accumulation,
-  /// i.e. read-write.
-  ///
-  /// Read-writes satisfy the following rules:
-  /// - A read-write on a variable is mutually exclusive with
-  ///   reads and exclusive writes.
+  /// i.e. read-write. See `.get_mut()` for details.
   pub fn accumulate<F>(&self, txn: TxnId, node: NodeId, init: F) -> bool where F: Fn(&mut A) {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
@@ -722,7 +709,7 @@ impl<A> ArrayVarNew<A> {
         incomplete_write = true;
         new_txn = true;
       } else {
-        assert!(!buf.readers.borrow().contains(&node));
+        assert!(!buf.reads.borrow().contains(&node));
         assert!(!buf.writes.borrow().contains_key(&node));
         let rw = buf.read_writes.borrow().contains(&(node, self.symbol));
         if rw {
@@ -733,7 +720,7 @@ impl<A> ArrayVarNew<A> {
     }
     if new_txn {
       buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
+      buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
@@ -759,6 +746,9 @@ impl<A> ArrayVarNew<A> {
     }
   }
 
+  /// Reads satisfy the following transactional rules:
+  /// - A read on a variable is mutually exclusive with read-writes
+  ///   and exclusive writes.
   pub fn get_clk(&self, clk: usize, txn: TxnId, node: NodeId) -> Ref<A> {
     let buf = &self.clk_bufs[clk];
     let mut new_txn = false;
@@ -769,9 +759,11 @@ impl<A> ArrayVarNew<A> {
       new_txn = curr_txn != txn;
     }
     assert!(!new_txn);
+    // FIXME(20170216): may need to record the current clock in
+    // read/write events.
     assert!(!buf.writes.borrow().contains_key(&node));
     assert!(!buf.coarse_rws.borrow().contains(&node));
-    buf.readers.borrow_mut().insert(node);
+    buf.reads.borrow_mut().insert(node);
     Ref::map(buf.buffer.borrow(), |buffer| {
       if let Some(buffer) = buffer.as_ref() {
         buffer
@@ -781,6 +773,12 @@ impl<A> ArrayVarNew<A> {
     })
   }
 
+  /// Exclusive writes satisfy the following transaction rules:
+  /// - An exclusive write on a variable is mutually exclusive with
+  ///   reads and read-writes.
+  /// - An exclusive write can be performed on a variable by only one
+  ///   operand symbol; attempting to exclusively write to the same
+  ///   variable using two different symbols is illegal.
   pub fn get_excl(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
@@ -793,12 +791,12 @@ impl<A> ArrayVarNew<A> {
     }
     if new_txn {
       buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
+      buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
     }
-    assert!(!buf.readers.borrow().contains(&node));
+    assert!(!buf.reads.borrow().contains(&node));
     assert!(!buf.coarse_rws.borrow().contains(&node));
     if buf.writes.borrow().contains_key(&node) {
       assert_eq!(self.symbol, *buf.writes.borrow().get(&node).unwrap());
@@ -814,6 +812,9 @@ impl<A> ArrayVarNew<A> {
     })
   }
 
+  /// Read-writes satisfy the following transactional rules:
+  /// - A read-write on a variable is mutually exclusive with
+  ///   reads and exclusive writes.
   pub fn get_mut(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
@@ -826,12 +827,12 @@ impl<A> ArrayVarNew<A> {
     }
     if new_txn {
       buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
+      buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
     }
-    assert!(!buf.readers.borrow().contains(&node));
+    assert!(!buf.reads.borrow().contains(&node));
     assert!(!buf.writes.borrow().contains_key(&node));
     if buf.read_writes.borrow().contains(&(node, self.symbol)) {
       assert!(buf.coarse_rws.borrow().contains(&node));
@@ -844,182 +845,6 @@ impl<A> ArrayVarNew<A> {
         buf
       } else {
         panic!("trying to read-write to unallocated buffer");
-      }
-    })
-  }
-}
-
-pub struct ArrayVar<A> {
-  var:      Var,
-  kind:     VarKind,
-  alloc:    Rc<Fn(TxnId, NodeId) -> A>,
-  curr_clk: Cell<usize>,
-  clk_bufs: Vec<ArrayVarBuf<A>>,
-}
-
-impl<A> ArrayVar<A> {
-  pub fn new(kind: VarKind, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
-    let mut clk_bufs = Vec::with_capacity(clk_horizon);
-    for clk in 0 .. clk_horizon {
-      clk_bufs.push(ArrayVarBuf::new(clk));
-    }
-    ArrayVar{
-      var:      Var::new(kind),
-      kind:     kind,
-      alloc:    alloc,
-      curr_clk: Cell::new(0),
-      clk_bufs: clk_bufs,
-    }
-  }
-
-  pub fn var(&self) -> Var {
-    self.var.clone()
-  }
-
-  pub fn reset_clock(&self) {
-    self.curr_clk.set(0);
-  }
-
-  pub fn set_clock(&self, clk: usize) {
-    self.curr_clk.set(clk);
-  }
-
-  pub fn invalidate(&self) {
-    let clk = self.curr_clk.get();
-    let buf = &self.clk_bufs[clk];
-    buf.curr_txn.set(None);
-    buf.readers.borrow_mut().clear();
-    buf.writers.borrow_mut().clear();
-    //buf.writers_.borrow_mut().clear();
-  }
-
-  pub fn rollover(&self, txn: TxnId, vars: &mut VarSet) {
-    let clk = self.curr_clk.get();
-    let buf = &self.clk_bufs[clk];
-    if vars.contains(&self.var) {
-      buf.curr_txn.set(Some(txn));
-    } else {
-      buf.curr_txn.set(None);
-    }
-    buf.readers.borrow_mut().clear();
-    buf.writers.borrow_mut().clear();
-    //buf.writers_.borrow_mut().clear();
-  }
-
-  pub fn write(&self, txn: TxnId, node: NodeId) -> bool {
-    let clk = self.curr_clk.get();
-    let buf = &self.clk_bufs[clk];
-    let mut incomplete_write = false;
-    let mut new_txn = false;
-    if buf.curr_txn.get().is_none() {
-      incomplete_write = true;
-      new_txn = true;
-    } else {
-      let curr_txn = buf.curr_txn.get().unwrap();
-      if curr_txn != txn {
-        incomplete_write = true;
-        new_txn = true;
-      } else {
-        incomplete_write = !buf.writers.borrow().contains(&node);
-      }
-    }
-    if new_txn {
-      buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
-      buf.writers.borrow_mut().clear();
-      //buf.writers_.borrow_mut().clear();
-      let mut buffer = buf.buffer.borrow_mut();
-      if buffer.is_none() {
-        *buffer = Some((self.alloc)(txn, node));
-      }
-      //init(&mut *buffer.as_mut().unwrap());
-    }
-    incomplete_write
-  }
-
-  pub fn accumulate<F>(&self, txn: TxnId, node: NodeId, init: F) -> bool where F: Fn(&mut A) {
-    let clk = self.curr_clk.get();
-    let buf = &self.clk_bufs[clk];
-    let mut new_txn = false;
-    if buf.curr_txn.get().is_none() {
-      new_txn = true;
-    } else {
-      let curr_txn = buf.curr_txn.get().unwrap();
-      if curr_txn != txn {
-        new_txn = true;
-      }
-    }
-    if new_txn {
-      buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
-      buf.writers.borrow_mut().clear();
-      //buf.writers_.borrow_mut().clear();
-      let mut buffer = buf.buffer.borrow_mut();
-      if buffer.is_none() {
-        *buffer = Some((self.alloc)(txn, node));
-      }
-      init(&mut *buffer.as_mut().unwrap());
-    }
-    // FIXME(20170215): incorrect, need to account for symbols.
-    true
-  }
-
-  pub fn get(&self, txn: TxnId, node: NodeId) -> Ref<A> {
-    let clk = self.curr_clk.get();
-    self.get_clk(clk, txn, node)
-  }
-
-  pub fn get_prev(&self, txn: TxnId, node: NodeId) -> Option<Ref<A>> {
-    let clk = self.curr_clk.get();
-    match clk {
-      0   => None,
-      clk => Some(self.get_clk(clk - 1, txn, node)),
-    }
-  }
-
-  pub fn get_clk(&self, clk: usize, txn: TxnId, node: NodeId) -> Ref<A> {
-    let buf = &self.clk_bufs[clk];
-    let mut new_txn = false;
-    if buf.curr_txn.get().is_none() {
-      new_txn = true;
-    } else {
-      let curr_txn = buf.curr_txn.get().unwrap();
-      new_txn = curr_txn != txn;
-    }
-    assert!(!new_txn);
-    assert!(!buf.writers.borrow().contains(&node));
-    buf.readers.borrow_mut().insert(node);
-    Ref::map(buf.buffer.borrow(), |buffer| {
-      if let Some(buffer) = buffer.as_ref() {
-        buffer
-      } else {
-        panic!("trying to read from unallocated buffer");
-      }
-    })
-  }
-
-  pub fn get_mut(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
-    let clk = self.curr_clk.get();
-    let buf = &self.clk_bufs[clk];
-    let mut new_txn = false;
-    if buf.curr_txn.get().is_none() {
-      new_txn = true;
-    } else {
-      let curr_txn = buf.curr_txn.get().unwrap();
-      new_txn = curr_txn != txn;
-    }
-    if new_txn {
-      buf.curr_txn.set(Some(txn));
-      buf.readers.borrow_mut().clear();
-      buf.writers.borrow_mut().clear();
-    }
-    assert!(!buf.readers.borrow().contains(&node));
-    buf.writers.borrow_mut().insert(node);
-    RefMut::map(buf.buffer.borrow_mut(), |buf| {
-      if let Some(buf) = buf.as_mut() {
-        buf
-      } else {
-        panic!("trying to write to unallocated buffer");
       }
     })
   }
@@ -1066,71 +891,6 @@ impl<A> ArrayDataNew<A> {
       grad2:    ArrayVarNew::new(symbol, Grad2, clk_horizon, alloc.clone()),
     }
   }
-
-  pub fn horizon(&self) -> usize {
-    self.clk_horizon
-  }
-
-  pub fn vars(&self) -> VarSet {
-    VarSet::empty()
-      .add(self.val.var())
-      .add(self.grad.var())
-      .add(self.r_val.var())
-      .add(self.r_grad.var())
-      .add(self.grad2.var())
-  }
-
-  pub fn reset_clock_all(&self) {
-    self.val.reset_clock();
-    self.grad.reset_clock();
-    self.r_val.reset_clock();
-    self.r_grad.reset_clock();
-    self.grad2.reset_clock();
-  }
-
-  pub fn set_clock_all(&self, clk: usize) {
-    self.val.set_clock(clk);
-    self.grad.set_clock(clk);
-    self.r_val.set_clock(clk);
-    self.r_grad.set_clock(clk);
-    self.grad2.set_clock(clk);
-  }
-
-  pub fn rollover_all(&self, txn: TxnId, vars: &mut VarSet) {
-    self.val.rollover(txn, vars);
-    self.grad.rollover(txn, vars);
-    self.r_val.rollover(txn, vars);
-    self.r_grad.rollover(txn, vars);
-    self.grad2.rollover(txn, vars);
-  }
-}
-
-pub struct ArrayData<A> {
-  clk_horizon:  usize,
-  alloc:        Rc<Fn(TxnId, NodeId) -> A>,
-  pub val:      ArrayVar<A>,
-  pub grad:     ArrayVar<A>,
-  pub r_val:    ArrayVar<A>,
-  pub r_grad:   ArrayVar<A>,
-  pub grad2:    ArrayVar<A>,
-}
-
-impl<A> ArrayData<A> {
-  pub fn new(clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> {
-    Rc::new(ArrayData{
-      clk_horizon:  clk_horizon,
-      alloc:        alloc.clone(),
-      val:      ArrayVar::new(Val, clk_horizon, alloc.clone()),
-      grad:     ArrayVar::new(Grad, clk_horizon, alloc.clone()),
-      r_val:    ArrayVar::new(RVal, clk_horizon, alloc.clone()),
-      r_grad:   ArrayVar::new(RGrad, clk_horizon, alloc.clone()),
-      grad2:    ArrayVar::new(Grad2, clk_horizon, alloc.clone()),
-    })
-  }
-
-  /*pub fn refs(&self) -> (Var, Var, Var, Var) {
-    unimplemented!();
-  }*/
 
   pub fn horizon(&self) -> usize {
     self.clk_horizon

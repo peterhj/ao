@@ -481,14 +481,6 @@ pub trait SpecialMapExt<T, A> {
   fn tanh(&self) -> Rc<MapOp<A, TanhMapKernel>>;
 }
 
-/*pub fn rectify<A>(x: Rc<ArrayOp<A>>) -> MapOp<A, RectMapKernel> {
-  unimplemented!();
-}
-
-pub fn tanh<A>(x: Rc<ArrayOp<A>>) -> MapOp<A, TanhMapKernel> {
-  unimplemented!();
-}*/
-
 pub struct MapOp<A, MapF> {
   node_id:  NodeId,
   stack:    OperatorStack,
@@ -820,13 +812,6 @@ impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<
     self.y.rollover_all(txn, vars);
   }
 
-  /*fn _clear(&self, txn: TxnId) {
-    self.y.val.invalidate();
-    self.y.grad.invalidate();
-    self.y.r_val.invalidate();
-    self.y.r_grad.invalidate();
-  }*/
-
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
     if self.y.val.overwrite(txn, node) {
@@ -1023,7 +1008,7 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
   }
 }
 
-/*impl<S> MultiplyExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
+impl<S> MultiplyExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
   fn mult(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
@@ -1038,7 +1023,7 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
 
   fn mult_add(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>, b_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>>> {
     let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), Some(b), clk_horizon, {
+    LinearOp::new(self.clone(), x_.clone(), Some(b_), clk_horizon, {
       let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1062,10 +1047,10 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.a._push(epoch, apply);
-      self.x._push(epoch, apply);
-      if let Some(ref b) = self.b {
-        b._push(epoch, apply);
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
       }
       apply(self);
     }
@@ -1074,11 +1059,11 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      if let Some(ref b) = self.b {
-        b._pop(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
       }
-      self.x._pop(epoch, apply);
-      self.a._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
     }
   }
 
@@ -1088,17 +1073,14 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
 
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
     if self.y.val.overwrite(txn, node) {
       self.y.val.get_mut(txn, node).as_view_mut().matrix_vector_prod(
           1.0,
-          a.val.get(txn, node).as_view(), Transpose::N,
-          x.val.get(txn, node).as_view(),
+          self.a.val.get(txn, node).as_view(), Transpose::N,
+          self.x.val.get(txn, node).as_view(),
           0.0,
       );
       if let Some(ref b) = self.b {
-        let b = b.data();
         self.y.val.get_mut(txn, node).as_view_mut().add(1.0, b.val.get(txn, node).as_view());
       }
     }
@@ -1106,28 +1088,25 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
-    if a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
-      let x_dim = x.val.get(txn, node).dim();
+    if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+      let x_dim = self.x.val.get(txn, node).dim();
       let y_dim = self.y.val.get(txn, node).dim();
-      a.grad.get_mut(txn, node).as_view_mut().matrix_prod(
+      self.a.grad.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
           self.y.grad.get(txn, node).as_view().reshape((y_dim, 1)), Transpose::N,
-          x.val.get(txn, node).as_view().reshape((x_dim, 1)), Transpose::T,
+          self.x.val.get(txn, node).as_view().reshape((x_dim, 1)), Transpose::T,
           1.0,
       );
     }
-    if x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
-      x.grad.get_mut(txn, node).as_view_mut().matrix_vector_prod(
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+      self.x.grad.get_mut(txn, node).as_view_mut().matrix_vector_prod(
           1.0,
-          a.val.get(txn, node).as_view(), Transpose::T,
+          self.a.val.get(txn, node).as_view(), Transpose::T,
           self.y.grad.get(txn, node).as_view(),
           1.0,
       );
     }
     if let Some(ref b) = self.b {
-      let b = b.data();
       if b.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
         b.grad.get_mut(txn, node).as_view_mut().copy(self.y.grad.get(txn, node).as_view());
       }
@@ -1136,23 +1115,20 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
     if self.y.r_val.overwrite(txn, node) {
       self.y.r_val.get_mut(txn, node).as_view_mut().matrix_vector_prod(
           1.0,
-          a.r_val.get(txn, node).as_view(), Transpose::N,
-          x.val.get(txn, node).as_view(),
+          self.a.r_val.get(txn, node).as_view(), Transpose::N,
+          self.x.val.get(txn, node).as_view(),
           0.0,
       );
       self.y.r_val.get_mut(txn, node).as_view_mut().matrix_vector_prod(
           1.0,
-          a.val.get(txn, node).as_view(), Transpose::N,
-          x.r_val.get(txn, node).as_view(),
+          self.a.val.get(txn, node).as_view(), Transpose::N,
+          self.x.r_val.get(txn, node).as_view(),
           1.0,
       );
       if let Some(ref b) = self.b {
-        let b = b.data();
         self.y.r_val.get_mut(txn, node).as_view_mut().add(1.0, b.r_val.get(txn, node).as_view());
       }
     }
@@ -1160,52 +1136,49 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
 
   fn _r_backward(&self, txn: TxnId) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
-    if a.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
-      let x_dim = x.val.get(txn, node).dim();
+    if self.a.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
+      let x_dim = self.x.val.get(txn, node).dim();
       let y_dim = self.y.grad.get(txn, node).dim();
-      a.r_grad.get_mut(txn, node).as_view_mut().matrix_prod(
+      self.a.r_grad.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
           self.y.r_grad.get(txn, node).as_view().reshape((y_dim, 1)), Transpose::N,
-          x.val.get(txn, node).as_view().reshape((x_dim, 1)), Transpose::T,
+          self.x.val.get(txn, node).as_view().reshape((x_dim, 1)), Transpose::T,
           1.0,
       );
-      a.r_grad.get_mut(txn, node).as_view_mut().matrix_prod(
+      self.a.r_grad.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
           self.y.grad.get(txn, node).as_view().reshape((y_dim, 1)), Transpose::N,
-          x.r_val.get(txn, node).as_view().reshape((x_dim, 1)), Transpose::T,
+          self.x.r_val.get(txn, node).as_view().reshape((x_dim, 1)), Transpose::T,
           1.0,
       );
     }
-    if x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
-      x.r_grad.get_mut(txn, node).as_view_mut().matrix_vector_prod(
+    if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
+      self.x.r_grad.get_mut(txn, node).as_view_mut().matrix_vector_prod(
           1.0,
-          a.r_val.get(txn, node).as_view(), Transpose::T,
+          self.a.r_val.get(txn, node).as_view(), Transpose::T,
           self.y.grad.get(txn, node).as_view(),
           1.0,
       );
-      x.r_grad.get_mut(txn, node).as_view_mut().matrix_vector_prod(
+      self.x.r_grad.get_mut(txn, node).as_view_mut().matrix_vector_prod(
           1.0,
-          a.val.get(txn, node).as_view(), Transpose::T,
+          self.a.val.get(txn, node).as_view(), Transpose::T,
           self.y.r_grad.get(txn, node).as_view(),
           1.0,
       );
     }
     if let Some(ref b) = self.b {
-      let b = b.data();
       if b.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
         b.r_grad.get_mut(txn, node).as_view_mut().add(1.0, self.y.r_grad.get(txn, node).as_view());
       }
     }
   }
-}*/
+}
 
-/*impl<S> MultiplyExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
-  fn mult(&self, x: Rc<ArrayOp<BatchArray1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
-    let clk_horizon = x.data().horizon();
-    LinearOp::new(self.clone(), x.clone(), None, clk_horizon, {
-      let x = x.clone().data();
+impl<S> MultiplyExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
+  fn mult(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
+    let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
+      let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
         let batch_sz = x.val.get(txn, node).batch_size();
@@ -1215,10 +1188,10 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
     })
   }
 
-  fn mult_add(&self, x: Rc<ArrayOp<BatchArray1d<f32, S>>>, b: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
-    let clk_horizon = x.data().horizon();
-    LinearOp::new(self.clone(), x.clone(), Some(b), clk_horizon, {
-      let x = x.clone().data();
+  fn mult_add(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>, b_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
+    let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), Some(b_), clk_horizon, {
+      let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
         let batch_sz = x.val.get(txn, node).batch_size();
@@ -1242,10 +1215,10 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.a._push(epoch, apply);
-      self.x._push(epoch, apply);
-      if let Some(ref b) = self.b {
-        b._push(epoch, apply);
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
       }
       apply(self);
     }
@@ -1254,11 +1227,11 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      if let Some(ref b) = self.b {
-        b._pop(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
       }
-      self.x._pop(epoch, apply);
-      self.a._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
     }
   }
 
@@ -1268,76 +1241,64 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
 
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
     if self.y.val.overwrite(txn, node) {
-      let batch_sz = x.val.get(txn, node).batch_size();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
       self.y.val.get_mut(txn, node).set_batch_size(batch_sz);
       self.y.val.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
-          a.val.get(txn, node).as_view(), Transpose::N,
-          x.val.get(txn, node).as_view(), Transpose::N,
+          self.a.val.get(txn, node).as_view(), Transpose::N,
+          self.x.val.get(txn, node).as_view(), Transpose::N,
           0.0,
       );
       if let Some(ref b) = self.b {
         unimplemented!();
-        /*let b = b.data();
-        self.y.val.get_mut(txn, node).as_view_mut().add(1.0, b.val.get(txn, node).as_view());*/
       }
     }
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
-    if a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
-      a.grad.get_mut(txn, node).as_view_mut().matrix_prod(
+    if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+      self.a.grad.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
           self.y.grad.get(txn, node).as_view(), Transpose::N,
-          x.val.get(txn, node).as_view(), Transpose::T,
+          self.x.val.get(txn, node).as_view(), Transpose::T,
           1.0,
       );
     }
-    if x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let batch_sz = self.y.grad.get(txn, node).batch_size();
-      x.grad.get_mut(txn, node).set_batch_size(batch_sz);
-      x.grad.get_mut(txn, node).as_view_mut().matrix_prod(
+      self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
+      self.x.grad.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
-          a.val.get(txn, node).as_view(), Transpose::T,
+          self.a.val.get(txn, node).as_view(), Transpose::T,
           self.y.grad.get(txn, node).as_view(), Transpose::N,
           1.0,
       );
     }
     if let Some(ref b) = self.b {
       unimplemented!();
-      /*let b = b.data();
-      if b.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
-        b.grad.get_mut(txn, node).as_view_mut().copy(self.y.grad.get(txn, node).as_view());
-      }*/
     }
   }
 
   fn _backward2(&self, txn: TxnId) {
     let node = self._id();
-    let a = self.a.data();
-    let x = self.x.data();
-    if a.grad2.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+    if self.a.grad2.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let tmp_txn = TxnId::new();
       assert!(self.tmp.val.overwrite(tmp_txn, node));
-      self.tmp.val.get_mut(tmp_txn, node).as_view_mut().flatten_mut().copy(a.grad.get(txn, node).as_view().flatten());
-      self.tmp.val.get_mut(tmp_txn, node).as_view_mut().flatten_mut().square();
-      self.tmp.val.get_mut(tmp_txn, node).as_view_mut().flatten_mut().elem_mult(x.grad2.get(txn, node).as_view().flatten());
-      a.grad2.get_mut(txn, node).as_view_mut().flatten_mut().add(1.0, self.tmp.val.get(tmp_txn, node).as_view().flatten());
+      self.tmp.val.get_excl(tmp_txn, node).as_view_mut().flatten_mut().copy(self.a.grad.get(txn, node).as_view().flatten());
+      self.tmp.val.get_excl(tmp_txn, node).as_view_mut().flatten_mut().square();
+      self.tmp.val.get_excl(tmp_txn, node).as_view_mut().flatten_mut().elem_mult(self.x.grad2.get(txn, node).as_view().flatten());
+      self.a.grad2.get_mut(txn, node).as_view_mut().flatten_mut().add(1.0, self.tmp.val.get(tmp_txn, node).as_view().flatten());
     }
-    if x.grad2.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+    if self.x.grad2.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let tmp_txn = TxnId::new();
       assert!(self.tmp.val.overwrite(tmp_txn, node));
-      self.tmp.val.get_mut(tmp_txn, node).as_view_mut().flatten_mut().copy(a.val.get(txn, node).as_view().flatten());
-      self.tmp.val.get_mut(tmp_txn, node).as_view_mut().flatten_mut().square();
+      self.tmp.val.get_excl(tmp_txn, node).as_view_mut().flatten_mut().copy(self.a.val.get(txn, node).as_view().flatten());
+      self.tmp.val.get_excl(tmp_txn, node).as_view_mut().flatten_mut().square();
       let batch_sz = self.y.grad2.get(txn, node).batch_size();
-      x.grad2.get_mut(txn, node).set_batch_size(batch_sz);
-      x.grad2.get_mut(txn, node).as_view_mut().matrix_prod(
+      self.x.grad2.get_mut(txn, node).set_batch_size(batch_sz);
+      self.x.grad2.get_mut(txn, node).as_view_mut().matrix_prod(
           1.0,
           self.tmp.val.get(tmp_txn, node).as_view(), Transpose::T,
           self.y.grad2.get(txn, node).as_view(), Transpose::N,
@@ -1348,14 +1309,17 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
       unimplemented!();
     }
   }
-}*/
+}
 
-/*pub struct ElemLinearOp<A, V, K> {
+pub struct ElemLinearOp<A, V, K> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  a:    Rc<ArrayOp<A>>,
-  x:    Rc<ArrayOp<V>>,
-  b:    Option<Rc<ArrayOp<A>>>,
+  a_:   Rc<ArrayOp<A>>,
+  x_:   Rc<ArrayOp<V>>,
+  b_:   Option<Rc<ArrayOp<A>>>,
+  a:    ArrayDataNew<A>,
+  x:    ArrayDataNew<V>,
+  b:    Option<ArrayDataNew<A>>,
   y:    ArrayDataNew<V>,
   tmp:  ArrayDataNew<V>,
   kernel:   K,
@@ -1371,10 +1335,10 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.a._push(epoch, apply);
-      self.x._push(epoch, apply);
-      if let Some(ref b) = self.b {
-        b._push(epoch, apply);
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
       }
       apply(self);
     }
@@ -1383,11 +1347,11 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      if let Some(ref b) = self.b {
-        b._pop(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
       }
-      self.x._pop(epoch, apply);
-      self.a._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
     }
   }
 
@@ -1399,11 +1363,8 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
     // TODO
     let node = self._id();
     if self.y.val.overwrite(txn, node) {
-      let a = self.a.data();
-      let x = self.x.data();
-      let batch_sz = x.val.get(txn, node).batch_size();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
       if let Some(ref b) = self.b {
-        let b = b.data();
       }
     }
     unimplemented!();
@@ -1414,15 +1375,25 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
     unimplemented!();
   }
 
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+
   fn _backward2(&self, txn: TxnId) {
     // TODO
     unimplemented!();
   }
-}*/
+}
 
-/*pub trait ConvExt<Idx, A, B, V>: ArrayOp<A> where Idx: ArrayIndex {
+pub trait ConvExt<Idx, A, B, V>: ArrayOp<A> where Idx: ArrayIndex {
   fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V>>;
-  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V>>;
+  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V>>;
 }
 
 #[derive(Clone)]
@@ -1436,9 +1407,12 @@ pub struct ConvOp<Idx, A, B, V> where Idx: ArrayIndex {
   node_id:  NodeId,
   stack:    OperatorStack,
   shape:    ConvShape<Idx>,
-  a:    Rc<ArrayOp<A>>,
-  x:    Rc<ArrayOp<V>>,
-  b:    Option<Rc<ArrayOp<B>>>,
+  a_:   Rc<ArrayOp<A>>,
+  x_:   Rc<ArrayOp<V>>,
+  b_:   Option<Rc<ArrayOp<B>>>,
+  a:    ArrayDataNew<A>,
+  x:    ArrayDataNew<V>,
+  b:    Option<ArrayDataNew<B>>,
   y:    ArrayDataNew<V>,
 }
 
@@ -1449,8 +1423,11 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.a._push(epoch, apply);
-      self.x._push(epoch, apply);
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
+      }
       apply(self);
     }
   }
@@ -1458,8 +1435,11 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.x._pop(epoch, apply);
-      self.a._pop(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
     }
   }
 
@@ -1468,27 +1448,27 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
   }
 
   fn _forward(&self, txn: TxnId) {
-    let a = self.a.data();
-    let x = self.x.data();
-    // TODO
-    if let Some(ref b) = self.b {
-      let b = b.data();
-    }
     unimplemented!();
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    // TODO
+    unimplemented!();
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
     unimplemented!();
   }
 
   fn _backward2(&self, txn: TxnId) {
-    // TODO
     unimplemented!();
   }
-}*/
+}
 
-/*#[derive(Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum BatchNormAverage {
   Geometric(f64),
   Arithmetic,
@@ -1581,7 +1561,8 @@ pub struct BatchNormOp<Idx, A, M> where Idx: ArrayIndex {
   node_id:  NodeId,
   stack:    OperatorStack,
   state:    Rc<RefCell<BatchNormState<Idx>>>,
-  x:        Rc<ArrayOp<A>>,
+  x_:       Rc<ArrayOp<A>>,
+  x:        ArrayDataNew<A>,
   mean:     ArrayDataNew<M>,
   mean_acc: ArrayDataNew<M>,
   mean_run: ArrayDataNew<M>,
@@ -1629,19 +1610,18 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
   fn _accumulate(&self, txn: TxnId) {
     let node = self._id();
     let mut state = self.state.borrow_mut();
-    let x = self.x.data();
-    let batch_sz = x.val.get(txn, node).batch_size();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
     // FIXME: does not account for non-uniform batch sizes.
     let n = (state.batch_ct + 1) as f32;
     //self.mean_acc.val.rollover(txn, self.mean_acc.val.var()); // FIXME
     if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       assert!(!self.mean.val.overwrite(txn, node));
-      self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_mut(txn, node).as_view());
+      self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_excl(txn, node).as_view());
     }
     //self.var_acc.val.rollover(txn, self.var_acc.val.var()); // FIXME
     if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       assert!(!self.var.val.overwrite(txn, node));
-      self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_mut(txn, node).as_view());
+      self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_excl(txn, node).as_view());
     }
     state.batch_ct += 1;
   }
@@ -1658,7 +1638,7 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
         self.mean_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.mean_acc.val.get(prev_txn, node).as_view());
       }
       if self.mean_acc.val.overwrite(next_txn, node) {
-        self.mean_acc.val.get_mut(next_txn, node).as_view_mut().set_constant(0.0);
+        self.mean_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
       }
     }
     //self.var_run.val.rollover(next_txn, self.var_run.val.var()); // FIXME
@@ -1667,7 +1647,7 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
         self.var_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.var_acc.val.get(prev_txn, node).as_view());
       }
       if self.var_acc.val.overwrite(next_txn, node) {
-        self.var_acc.val.get_mut(next_txn, node).as_view_mut().set_constant(0.0);
+        self.var_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
       }
     }
     state.batch_ct = 0;
@@ -1682,7 +1662,7 @@ impl<S> AutodiffOp for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>>
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.x._push(epoch, apply);
+      self.x_._push(epoch, apply);
       apply(self);
     }
   }
@@ -1690,7 +1670,7 @@ impl<S> AutodiffOp for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>>
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.x._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
     }
   }
 
@@ -1706,7 +1686,7 @@ impl<S> AutodiffOp for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>>
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     unimplemented!();
   }
-}*/
+}
 
 pub struct BatchJoinOp<A, Scalar, JoinF> {
   node_id:  NodeId,
@@ -1849,11 +1829,13 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
   }
 }
 
-/*pub struct LstSqLoss<A> {
+pub struct LstSqLoss<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  x:        Rc<ArrayOp<A>>,
-  target:   Rc<ArrayOp<A>>,
+  x_:       Rc<ArrayOp<A>>,
+  target_:  Rc<ArrayOp<A>>,
+  x:        ArrayDataNew<A>,
+  target:   ArrayDataNew<A>,
   loss:     ArrayDataNew<A>,
 }
 
@@ -1864,8 +1846,8 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.x._push(epoch, apply);
-      self.target._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      self.target_._push(epoch, apply);
       apply(self);
     }
   }
@@ -1873,8 +1855,8 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.target._pop(epoch, apply);
-      self.x._pop(epoch, apply);
+      self.target_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
     }
   }
 
@@ -1884,14 +1866,12 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
 
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
-    let x = self.x.data();
-    let target = self.target.data();
-    let batch_sz = x.val.get(txn, node).batch_size();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
     if self.loss.val.overwrite(txn, node) {
       let mut loss_val = self.loss.val.get_mut(txn, node);
       loss_val.set_batch_size(batch_sz, 0.0);
-      loss_val.reshape_mut(batch_sz).copy(x.val.get(txn, node).reshape(batch_sz));
-      loss_val.reshape_mut(batch_sz).add(-1.0, target.val.get(txn, node).reshape(batch_sz));
+      loss_val.reshape_mut(batch_sz).copy(self.x.val.get(txn, node).reshape(batch_sz));
+      loss_val.reshape_mut(batch_sz).add(-1.0, self.target.val.get(txn, node).reshape(batch_sz));
       loss_val.reshape_mut(batch_sz).square();
       loss_val.reshape_mut(batch_sz).scale(0.5);
     }
@@ -1902,14 +1882,12 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
     if gauss_newton {
       unimplemented!();
     } else {
-      let x = self.x.data();
-      let target = self.target.data();
-      let batch_sz = x.val.get(txn, node).batch_size();
-      if x.grad.accumulate(txn, node, |grad| grad.reshape_mut(batch_sz).set_constant(0.0)) {
-        x.grad.get_mut(txn, node).set_batch_size(batch_sz, 0.0);
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      if self.x.grad.accumulate(txn, node, |grad| grad.reshape_mut(batch_sz).set_constant(0.0)) {
+        self.x.grad.get_mut(txn, node).set_batch_size(batch_sz, 0.0);
         // FIXME(20170209): mix with `loss.grad`; requires a tmp variable.
-        x.grad.get_mut(txn, node).reshape_mut(batch_sz).add(1.0, x.val.get(txn, node).reshape(batch_sz));
-        x.grad.get_mut(txn, node).reshape_mut(batch_sz).add(-1.0, target.val.get(txn, node).reshape(batch_sz));
+        self.x.grad.get_mut(txn, node).reshape_mut(batch_sz).add(1.0, self.x.val.get(txn, node).reshape(batch_sz));
+        self.x.grad.get_mut(txn, node).reshape_mut(batch_sz).add(-1.0, self.target.val.get(txn, node).reshape(batch_sz));
       }
     }
   }
@@ -1930,8 +1908,10 @@ impl LikelihoodLossLink for NLLLossLink {}
 pub struct SoftmaxLoss<A, Target, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  x:        Rc<ArrayOp<A>>,
-  target:   Option<Rc<ArrayOp<Target>>>,
+  x_:       Rc<ArrayOp<A>>,
+  target_:  Option<Rc<ArrayOp<Target>>>,
+  x:        ArrayDataNew<A>,
+  target:   ArrayDataNew<Target>,
   loss:     ArrayDataNew<Loss>,
   link:     Link,
 }
@@ -1947,9 +1927,9 @@ impl<S, Target, Loss, Link> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Tar
 
   default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.x._push(epoch, apply);
-      if let Some(ref target) = self.target {
-        target._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref target_) = self.target_ {
+        target_._push(epoch, apply);
       }
       apply(self);
     }
@@ -1958,10 +1938,10 @@ impl<S, Target, Loss, Link> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Tar
   default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      if let Some(ref target) = self.target {
-        target._pop(epoch, apply);
+      if let Some(ref target_) = self.target_ {
+        target_._pop(epoch, apply);
       }
-      self.x._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
     }
   }
 
@@ -2026,4 +2006,4 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<u32>, Batch<f32>,
   fn _r_backward(&self, txn: TxnId) {
     unimplemented!();
   }
-}*/
+}
