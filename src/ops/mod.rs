@@ -126,13 +126,17 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     self.data.rollover_all(txn, vars);
   }
 
-  fn _forward(&self, txn: TxnId) {
+  fn _forward(&self, _txn: TxnId) {
   }
 
   fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
   }
 
-  fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) {
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.data.r_val.overwrite(txn, node) {
+      self.data.r_val.get_excl(txn, node).as_view_mut().set_constant(0.0);
+    }
   }
 
   fn _r_backward(&self, _txn: TxnId) {
@@ -194,13 +198,17 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
     self.data.rollover_all(txn, vars);
   }
 
-  fn _forward(&self, txn: TxnId) {
+  fn _forward(&self, _txn: TxnId) {
   }
 
   fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
   }
 
-  fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) {
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.data.r_val.overwrite(txn, node) {
+      self.data.r_val.get_excl(txn, node).as_view_mut().flatten_mut().set_constant(0.0);
+    }
   }
 
   fn _r_backward(&self, _txn: TxnId) {
@@ -262,13 +270,17 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
     self.data.rollover_all(txn, vars);
   }
 
-  fn _forward(&self, txn: TxnId) {
+  fn _forward(&self, _txn: TxnId) {
   }
 
   fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
   }
 
-  fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) {
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.data.r_val.overwrite(txn, node) {
+      self.data.r_val.get_excl(txn, node).as_view_mut().flatten_mut().set_constant(0.0);
+    }
   }
 
   fn _r_backward(&self, _txn: TxnId) {
