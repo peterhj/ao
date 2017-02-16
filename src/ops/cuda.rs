@@ -38,9 +38,9 @@ impl ArrayOp<DeviceArray1d<f32>> for ArraySrc<DeviceArray1d<f32>> {
 }
 
 impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
-  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if self.data.val.write(txn, node) {
         if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
@@ -54,9 +54,9 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
     }
   }
 
-  fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim();
@@ -68,9 +68,9 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.grad._ref()) {
+    if vars.contains(&self.data.grad.var()) {
       if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim();
@@ -98,8 +98,8 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -134,9 +134,9 @@ impl ArrayOp<DeviceArray2d<f32>> for ArraySrc<DeviceArray2d<f32>> {
 }
 
 impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
-  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if self.data.val.write(txn, node) {
         if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
@@ -150,9 +150,9 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
     }
   }
 
-  fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim().flat_len();
@@ -164,9 +164,9 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.grad._ref()) {
+    if vars.contains(&self.data.grad.var()) {
       if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim().flat_len();
@@ -194,8 +194,8 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -230,9 +230,9 @@ impl ArrayOp<DeviceArray4d<f32>> for ArraySrc<DeviceArray4d<f32>> {
 }
 
 impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
-  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if self.data.val.write(txn, node) {
         if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
@@ -246,9 +246,9 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
     }
   }
 
-  fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim().flat_len();
@@ -260,9 +260,9 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.grad._ref()) {
+    if vars.contains(&self.data.grad.var()) {
       if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim().flat_len();
@@ -290,8 +290,8 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {

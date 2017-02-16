@@ -83,8 +83,8 @@ impl<A> ArraySrc<A> {
     }
   }
 
-  default fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   default fn _forward(&self, txn: TxnId) {
@@ -119,9 +119,9 @@ impl ArrayOp<Array1d<f32>> for ArraySrc<Array1d<f32>> {
 }
 
 impl AutodiffOp for ArraySrc<Array1d<f32>> {
-  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if self.data.val.write(txn, node) {
         /*match reader.get_type_id() {
           VEC_F32_TYPEID => {}
@@ -139,9 +139,9 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     }
   }
 
-  fn _store(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim();
@@ -153,9 +153,9 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, ref_set: &mut DataRefSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.grad._ref()) {
+    if vars.contains(&self.data.grad.var()) {
       if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim();
@@ -183,8 +183,8 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -219,9 +219,9 @@ impl ArrayOp<Array2d<f32>> for ArraySrc<Array2d<f32>> {
 }
 
 impl AutodiffOp for ArraySrc<Array2d<f32>> {
-  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if self.data.val.write(txn, node) {
         if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
@@ -251,8 +251,8 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -287,9 +287,9 @@ impl ArrayOp<Array4d<f32>> for ArraySrc<Array4d<f32>> {
 }
 
 impl AutodiffOp for ArraySrc<Array4d<f32>> {
-  fn _load(&self, txn: TxnId, ref_set: &mut DataRefSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
-    if ref_set.contains(&self.data.val._ref()) {
+    if vars.contains(&self.data.val.var()) {
       if self.data.val.write(txn, node) {
         if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_mut(txn, node);
@@ -319,8 +319,8 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.data.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -392,7 +392,7 @@ impl<A> AutodiffOp for PassOp<A> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -502,7 +502,7 @@ impl<S, F> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -590,8 +590,8 @@ impl<S, MapF> AutodiffOp for MapOp<Array1d<f32, S>, MapF> where S: DerefMut<Targ
     }
   }
 
-  default fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   default fn _forward(&self, txn: TxnId) {
@@ -770,8 +770,8 @@ impl<S> AutodiffOp for TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTran
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -880,8 +880,8 @@ impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   /*fn _clear(&self, txn: TxnId) {
@@ -969,6 +969,8 @@ pub trait MultiplyExt<A, V, W, B> {
 pub struct LinearOp<A, V, W, B> {
   node_id:  NodeId,
   stack:    OperatorStack,
+  //a_:   ArrayOperand<A>,
+  //x_:   ArrayOperand<V>,
   a:    Rc<ArrayOp<A>>,
   x:    Rc<ArrayOp<V>>,
   b:    Option<Rc<ArrayOp<B>>>,
@@ -986,6 +988,8 @@ impl<A, V, W, B> LinearOp<A, V, W, B> {
     Rc::new(LinearOp{
       node_id:  node,
       stack:    OperatorStack::new(node, in_degree),
+      //a_:   ArrayOperand::new(a.data()),
+      //x_:   ArrayOperand::new(x.data()),
       a:    a,
       x:    x,
       b:    b,
@@ -1017,7 +1021,13 @@ impl<S> AutodiffObjective for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f3
   fn _set_source(&self, txn: TxnId) {
     let node = self._id();
     //println!("DEBUG: LinearOp: set source");
-    if !self.y.grad.accumulate(txn, node, |g| *g = 1.0) {
+    /*if self.y.grad.write(txn, node) {
+      *self.y.grad.get_mut(txn, node) = 1.0;
+    } else {
+      assert_eq!(1.0, *self.y.grad.get_mut(txn, node));
+    }*/
+    if self.y.grad.accumulate(txn, node, |g| *g = 1.0) {
+    } else {
       assert_eq!(1.0, *self.y.grad.get_mut(txn, node));
     }
   }
@@ -1050,8 +1060,8 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1072,11 +1082,16 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
     let a = self.a.data();
     let x = self.x.data();
     if a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+    //if a_.grad.accumulate_(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       //println!("DEBUG: LinearOp: backward");
+      //println!("DEBUG: LinearOp: backward: a.grad: before: {:?}", &a.grad.get_mut(txn, node).as_slice()[ .. 5]);
       a.grad.get_mut(txn, node).as_view_mut().add(*self.y.grad.get(txn, node), x.val.get(txn, node).as_view());
+      //println!("DEBUG: LinearOp: backward: a.grad: after:  {:?}", &a.grad.get_mut(txn, node).as_slice()[ .. 5]);
     }
     if x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
+      //println!("DEBUG: LinearOp: backward: x.grad: before: {:?}", &x.grad.get_mut(txn, node).as_slice()[ .. 5]);
       x.grad.get_mut(txn, node).as_view_mut().add(*self.y.grad.get(txn, node), a.val.get(txn, node).as_view());
+      //println!("DEBUG: LinearOp: backward: x.grad: after:  {:?}", &x.grad.get_mut(txn, node).as_slice()[ .. 5]);
     }
     if let Some(ref b) = self.b {
       let b = b.data();
@@ -1146,8 +1161,8 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1326,8 +1341,8 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1455,8 +1470,8 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1531,8 +1546,8 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1701,12 +1716,12 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
     let batch_sz = x.val.get(txn, node).batch_size();
     // FIXME: does not account for non-uniform batch sizes.
     let n = (state.batch_ct + 1) as f32;
-    //self.mean_acc.val.rollover(txn, self.mean_acc.val._ref()); // FIXME
+    //self.mean_acc.val.rollover(txn, self.mean_acc.val.var()); // FIXME
     if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       assert!(!self.mean.val.write(txn, node));
       self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_mut(txn, node).as_view());
     }
-    //self.var_acc.val.rollover(txn, self.var_acc.val._ref()); // FIXME
+    //self.var_acc.val.rollover(txn, self.var_acc.val.var()); // FIXME
     if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       assert!(!self.var.val.write(txn, node));
       self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_mut(txn, node).as_view());
@@ -1720,7 +1735,7 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
     let rate = state.cfg.average.rate(state.update_ct) as f32;
     // FIXME: rather than directly average with `rate`, should use a
     // normalized rate for bias correction.
-    //self.mean_run.val.rollover(next_txn, self.mean_run.val._ref()); // FIXME
+    //self.mean_run.val.rollover(next_txn, self.mean_run.val.var()); // FIXME
     if self.mean_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       if rate != 0.0 {
         self.mean_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.mean_acc.val.get(prev_txn, node).as_view());
@@ -1729,7 +1744,7 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
         self.mean_acc.val.get_mut(next_txn, node).as_view_mut().set_constant(0.0);
       }
     }
-    //self.var_run.val.rollover(next_txn, self.var_run.val._ref()); // FIXME
+    //self.var_run.val.rollover(next_txn, self.var_run.val.var()); // FIXME
     if self.var_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       if rate != 0.0 {
         self.var_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.var_acc.val.get(prev_txn, node).as_view());
@@ -1762,9 +1777,9 @@ impl<S> AutodiffOp for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>>
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.mean.rollover_all(txn, ref_set);
-    self.var.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.mean.rollover_all(txn, vars);
+    self.var.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1822,8 +1837,8 @@ impl AutodiffOp for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1882,8 +1897,8 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.y.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -1957,8 +1972,8 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.loss.rollover_all(txn, ref_set);
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -2044,8 +2059,8 @@ impl<S, Target, Loss, Link> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Tar
     }
   }
 
-  default fn _rollover(&self, txn: TxnId, ref_set: &mut DataRefSet) {
-    self.loss.rollover_all(txn, ref_set);
+  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
   }
 
   default fn _forward(&self, txn: TxnId) {
