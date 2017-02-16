@@ -519,7 +519,7 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
 
 pub trait ArrayOp<A>: AutodiffOp {
   fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op.clone() }
-  fn data(&self) -> ArrayDataNew<A>;
+  fn data(&self) -> ArrayData<A>;
 }
 
 /*pub trait ArrayObjective<A>: ArrayOp<A> + AutodiffObjective {
@@ -850,7 +850,7 @@ impl<A> ArrayVarNew<A> {
   }
 }
 
-pub struct ArrayDataNew<A> {
+pub struct ArrayData<A> {
   symbol:       Symbol,
   clk_horizon:  usize,
   alloc:        Rc<Fn(TxnId, NodeId) -> A>,
@@ -861,10 +861,10 @@ pub struct ArrayDataNew<A> {
   pub grad2:    ArrayVarNew<A>,
 }
 
-impl<A> Clone for ArrayDataNew<A> {
+impl<A> Clone for ArrayData<A> {
   fn clone(&self) -> Self {
     let new_symbol = Symbol::new();
-    ArrayDataNew{
+    ArrayData{
       symbol:       new_symbol,
       clk_horizon:  self.clk_horizon,
       alloc:        self.alloc.clone(),
@@ -877,10 +877,10 @@ impl<A> Clone for ArrayDataNew<A> {
   }
 }
 
-impl<A> ArrayDataNew<A> {
+impl<A> ArrayData<A> {
   pub fn new(clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let symbol = Symbol::new();
-    ArrayDataNew{
+    ArrayData{
       symbol:       symbol,
       clk_horizon:  clk_horizon,
       alloc:        alloc.clone(),

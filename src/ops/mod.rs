@@ -35,7 +35,7 @@ pub fn sequential_var<A, F>(horizon: usize, cons: F) -> Rc<ArraySrc<A>> where F:
 pub struct ArraySrc<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  data:     ArrayDataNew<A>,
+  data:     ArrayData<A>,
   clock:    bool,
 }
 
@@ -45,14 +45,14 @@ impl<A> ArraySrc<A> {
     Rc::new(ArraySrc{
       node_id:  node,
       stack:    OperatorStack::new(node, 0),
-      data:     ArrayDataNew::new(horizon, alloc),
+      data:     ArrayData::new(horizon, alloc),
       clock:    clock,
     })
   }
 }
 
 impl ArrayOp<Array1d<f32>> for ArraySrc<Array1d<f32>> {
-  fn data(&self) -> ArrayDataNew<Array1d<f32>> {
+  fn data(&self) -> ArrayData<Array1d<f32>> {
     self.data.clone()
   }
 }
@@ -152,7 +152,7 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
 }
 
 impl ArrayOp<Array2d<f32>> for ArraySrc<Array2d<f32>> {
-  fn data(&self) -> ArrayDataNew<Array2d<f32>> {
+  fn data(&self) -> ArrayData<Array2d<f32>> {
     self.data.clone()
   }
 }
@@ -220,7 +220,7 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
 }
 
 impl ArrayOp<Array4d<f32>> for ArraySrc<Array4d<f32>> {
-  fn data(&self) -> ArrayDataNew<Array4d<f32>> {
+  fn data(&self) -> ArrayData<Array4d<f32>> {
     self.data.clone()
   }
 }
@@ -291,11 +291,11 @@ pub struct PassOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AutodiffOp>,
-  data:     ArrayDataNew<A>,
+  data:     ArrayData<A>,
 }
 
 impl<A> PassOp<A> {
-  pub fn new(x_: Rc<AutodiffOp>, data: ArrayDataNew<A>) -> Rc<Self> {
+  pub fn new(x_: Rc<AutodiffOp>, data: ArrayData<A>) -> Rc<Self> {
     let node = NodeId::new();
     Rc::new(PassOp{
       node_id:  node,
@@ -307,7 +307,7 @@ impl<A> PassOp<A> {
 }
 
 impl<A> ArrayOp<A> for PassOp<A> {
-  fn data(&self) -> ArrayDataNew<A> {
+  fn data(&self) -> ArrayData<A> {
     self.data.clone()
   }
 }
@@ -346,7 +346,7 @@ pub struct InitializeOp<A, InitF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
-  data: ArrayDataNew<A>,
+  data: ArrayData<A>,
   kernel:   InitF,
 }
 
@@ -417,7 +417,7 @@ impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + ArrayOp
 }
 
 impl<A, InitF> ArrayOp<A> for InitializeOp<A, InitF> where InitializeOp<A, InitF>: AutodiffOp {
-  fn data(&self) -> ArrayDataNew<A> {
+  fn data(&self) -> ArrayData<A> {
     self.data.clone()
   }
 }
@@ -485,8 +485,8 @@ pub struct MapOp<A, MapF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
-  x:    ArrayDataNew<A>,
-  y:    ArrayDataNew<A>,
+  x:    ArrayData<A>,
+  y:    ArrayData<A>,
   kernel:   MapF,
 }
 
@@ -499,7 +499,7 @@ impl<A, MapF> MapOp<A, MapF> {
       stack:    OperatorStack::new(node, 1),
       x_:   x_,
       x:    x,
-      y:    ArrayDataNew::new(clk_horizon, alloc),
+      y:    ArrayData::new(clk_horizon, alloc),
       kernel:   kernel,
     })
   }
@@ -642,8 +642,8 @@ pub struct TransformOp<A, B, Transform> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
-  x:    ArrayDataNew<A>,
-  y:    ArrayDataNew<B>,
+  x:    ArrayData<A>,
+  y:    ArrayData<B>,
   kernel:   Transform,
 }
 
@@ -676,7 +676,7 @@ impl<S> TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform> where S:
       stack:    OperatorStack::new(node, 1),
       x_:   x_,
       x:    x,
-      y:    ArrayDataNew::new(clk_horizon, alloc),
+      y:    ArrayData::new(clk_horizon, alloc),
       kernel:   FlattenTransform,
     })
   }
@@ -738,13 +738,13 @@ pub struct JoinOp<A, JoinF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   xs_:  Vec<Rc<ArrayOp<A>>>,
-  xs:   Vec<ArrayDataNew<A>>,
-  y:    ArrayDataNew<A>,
+  xs:   Vec<ArrayData<A>>,
+  y:    ArrayData<A>,
   kernel:   JoinF,
 }
 
 impl<A, JoinF> ArrayOp<A> for JoinOp<A, JoinF> where JoinOp<A, JoinF>: AutodiffOp {
-  fn data(&self) -> ArrayDataNew<A> {
+  fn data(&self) -> ArrayData<A> {
     self.y.clone()
   }
 }
@@ -855,7 +855,7 @@ pub struct SplitOp<A, SplitF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x:    Rc<ArrayOp<A>>,
-  y:    ArrayDataNew<A>,
+  y:    ArrayData<A>,
   kernel:   SplitF,
 }
 
@@ -887,11 +887,11 @@ pub struct LinearOp<A, V, W, B> {
   a_:   Rc<ArrayOp<A>>,
   x_:   Rc<ArrayOp<V>>,
   b_:   Option<Rc<ArrayOp<B>>>,
-  a:    ArrayDataNew<A>,
-  x:    ArrayDataNew<V>,
-  b:    Option<ArrayDataNew<B>>,
-  y:    ArrayDataNew<W>,
-  tmp:  ArrayDataNew<W>,
+  a:    ArrayData<A>,
+  x:    ArrayData<V>,
+  b:    Option<ArrayData<B>>,
+  y:    ArrayData<W>,
+  tmp:  ArrayData<W>,
 }
 
 impl<A, V, W, B> LinearOp<A, V, W, B> {
@@ -913,8 +913,8 @@ impl<A, V, W, B> LinearOp<A, V, W, B> {
       a:    a,
       x:    x,
       b:    b,
-      y:    ArrayDataNew::new(clk_horizon, alloc.clone()),
-      tmp:  ArrayDataNew::new(1, alloc),
+      y:    ArrayData::new(clk_horizon, alloc.clone()),
+      tmp:  ArrayData::new(1, alloc),
     })
   }
 }
@@ -932,7 +932,7 @@ impl<Op, S> MultiplyExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> w
 }
 
 impl<S> ArrayOp<f32> for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> where S: DerefMut<Target=[f32]> {
-  fn data(&self) -> ArrayDataNew<f32> {
+  fn data(&self) -> ArrayData<f32> {
     self.y.clone()
   }
 }
@@ -1035,7 +1035,7 @@ impl<S> MultiplyExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f
 }
 
 impl<S> ArrayOp<Array1d<f32, S>> for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn data(&self) -> ArrayDataNew<Array1d<f32, S>> {
+  fn data(&self) -> ArrayData<Array1d<f32, S>> {
     self.y.clone()
   }
 }
@@ -1203,7 +1203,7 @@ impl<S> MultiplyExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>,
 }
 
 impl<S> ArrayOp<BatchArray1d<f32, S>> for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn data(&self) -> ArrayDataNew<BatchArray1d<f32, S>> {
+  fn data(&self) -> ArrayData<BatchArray1d<f32, S>> {
     self.y.clone()
   }
 }
@@ -1317,11 +1317,11 @@ pub struct ElemLinearOp<A, V, K> {
   a_:   Rc<ArrayOp<A>>,
   x_:   Rc<ArrayOp<V>>,
   b_:   Option<Rc<ArrayOp<A>>>,
-  a:    ArrayDataNew<A>,
-  x:    ArrayDataNew<V>,
-  b:    Option<ArrayDataNew<A>>,
-  y:    ArrayDataNew<V>,
-  tmp:  ArrayDataNew<V>,
+  a:    ArrayData<A>,
+  x:    ArrayData<V>,
+  b:    Option<ArrayData<A>>,
+  y:    ArrayData<V>,
+  tmp:  ArrayData<V>,
   kernel:   K,
 }
 
@@ -1410,10 +1410,10 @@ pub struct ConvOp<Idx, A, B, V> where Idx: ArrayIndex {
   a_:   Rc<ArrayOp<A>>,
   x_:   Rc<ArrayOp<V>>,
   b_:   Option<Rc<ArrayOp<B>>>,
-  a:    ArrayDataNew<A>,
-  x:    ArrayDataNew<V>,
-  b:    Option<ArrayDataNew<B>>,
-  y:    ArrayDataNew<V>,
+  a:    ArrayData<A>,
+  x:    ArrayData<V>,
+  b:    Option<ArrayData<B>>,
+  y:    ArrayData<V>,
 }
 
 impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, Array3d<f32, S>> where S: DerefMut<Target=[f32]> {
@@ -1562,13 +1562,13 @@ pub struct BatchNormOp<Idx, A, M> where Idx: ArrayIndex {
   stack:    OperatorStack,
   state:    Rc<RefCell<BatchNormState<Idx>>>,
   x_:       Rc<ArrayOp<A>>,
-  x:        ArrayDataNew<A>,
-  mean:     ArrayDataNew<M>,
-  mean_acc: ArrayDataNew<M>,
-  mean_run: ArrayDataNew<M>,
-  var:      ArrayDataNew<M>,
-  var_acc:  ArrayDataNew<M>,
-  var_run:  ArrayDataNew<M>,
+  x:        ArrayData<A>,
+  mean:     ArrayData<M>,
+  mean_acc: ArrayData<M>,
+  mean_run: ArrayData<M>,
+  var:      ArrayData<M>,
+  var_acc:  ArrayData<M>,
+  var_run:  ArrayData<M>,
   mean_op:      Weak<PassOp<M>>,
   mean_acc_op:  Rc<ArraySrc<M>>,
   mean_run_op:  Rc<ArraySrc<M>>,
@@ -1692,8 +1692,8 @@ pub struct BatchJoinOp<A, Scalar, JoinF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
-  x:    ArrayDataNew<A>,
-  y:    ArrayDataNew<Scalar>,
+  x:    ArrayData<A>,
+  y:    ArrayData<Scalar>,
   kernel:   JoinF,
 }
 
@@ -1769,8 +1769,8 @@ pub struct SequentialJoinOp<A, B, JoinF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
-  x:    ArrayDataNew<A>,
-  y:    ArrayDataNew<B>,
+  x:    ArrayData<A>,
+  y:    ArrayData<B>,
   curr_clk: Cell<usize>,
   kernel:   JoinF,
 }
@@ -1834,9 +1834,9 @@ pub struct LstSqLoss<A> {
   stack:    OperatorStack,
   x_:       Rc<ArrayOp<A>>,
   target_:  Rc<ArrayOp<A>>,
-  x:        ArrayDataNew<A>,
-  target:   ArrayDataNew<A>,
-  loss:     ArrayDataNew<A>,
+  x:        ArrayData<A>,
+  target:   ArrayData<A>,
+  loss:     ArrayData<A>,
 }
 
 impl AutodiffOp for LstSqLoss<Batch<f32>> {
@@ -1910,9 +1910,9 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   stack:    OperatorStack,
   x_:       Rc<ArrayOp<A>>,
   target_:  Option<Rc<ArrayOp<Target>>>,
-  x:        ArrayDataNew<A>,
-  target:   ArrayDataNew<Target>,
-  loss:     ArrayDataNew<Loss>,
+  x:        ArrayData<A>,
+  target:   ArrayData<Target>,
+  loss:     ArrayData<Loss>,
   link:     Link,
 }
 

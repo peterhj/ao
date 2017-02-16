@@ -32,7 +32,7 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<DeviceMem<T>> where T: 'a + Copy {
 }
 
 impl ArrayOp<DeviceArray1d<f32>> for ArraySrc<DeviceArray1d<f32>> {
-  fn data(&self) -> ArrayDataNew<DeviceArray1d<f32>> {
+  fn data(&self) -> ArrayData<DeviceArray1d<f32>> {
     self.data.clone()
   }
 }
@@ -128,7 +128,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
 }
 
 impl ArrayOp<DeviceArray2d<f32>> for ArraySrc<DeviceArray2d<f32>> {
-  fn data(&self) -> ArrayDataNew<DeviceArray2d<f32>> {
+  fn data(&self) -> ArrayData<DeviceArray2d<f32>> {
     self.data.clone()
   }
 }
@@ -224,7 +224,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
 }
 
 impl ArrayOp<DeviceArray4d<f32>> for ArraySrc<DeviceArray4d<f32>> {
-  fn data(&self) -> ArrayDataNew<DeviceArray4d<f32>> {
+  fn data(&self) -> ArrayData<DeviceArray4d<f32>> {
     self.data.clone()
   }
 }
