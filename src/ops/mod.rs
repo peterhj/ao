@@ -572,11 +572,42 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, RectMapKernel> where S: DerefMut<T
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
+    let node = self._id();
+    if self.y.r_val.overwrite(txn, node) {
+      let x_dim = self.x.r_val.get(txn, node).dim();
+      unsafe { arraydiff_kernel_rect_bwd_f32(
+          x_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.x.r_val.get(txn, node).as_view().as_ptr(),
+          self.y.r_val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+      ) };
+    }
   }
 
   fn _r_backward(&self, txn: TxnId) {
-    unimplemented!();
+    let node = self._id();
+    if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
+      let y_dim = self.y.r_grad.get(txn, node).dim();
+      unsafe { arraydiff_kernel_rect_bwd_f32(
+          y_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.r_grad.get(txn, node).as_view().as_ptr(),
+          self.x.r_grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+      ) };
+    }
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0)) {
+      let y_dim = self.y.grad2.get(txn, node).dim();
+      unsafe { arraydiff_kernel_rect_bwd_f32(
+          y_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad2.get(txn, node).as_view().as_ptr(),
+          self.x.grad2.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+      ) };
+    }
   }
 }
 

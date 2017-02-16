@@ -2,6 +2,7 @@ use prelude::*;
 use ffi::*;
 use ops::*;
 
+use async_execution::*;
 use densearray::prelude::*;
 use devicemem_cuda::prelude::*;
 
@@ -371,6 +372,99 @@ impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<Re
   }
 }
 
+impl AutodiffOp for MapOp<DeviceArray1d<f32>, RectMapKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let x_dim = self.x.val.get(txn, node).dim();
+      unsafe { arraydiff_cuda_kernel_rect_fwd_f32(
+          x_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let y_dim = self.y.grad.get(txn, node).dim();
+      unsafe { arraydiff_cuda_kernel_rect_bwd_f32(
+          y_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.y.r_val.overwrite(txn, node) {
+      let x_dim = self.x.r_val.get(txn, node).dim();
+      unsafe { arraydiff_cuda_kernel_rect_bwd_f32(
+          x_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.x.r_val.get(txn, node).as_view().as_ptr(),
+          self.y.r_val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let y_dim = self.y.r_grad.get(txn, node).dim();
+      unsafe { arraydiff_cuda_kernel_rect_bwd_f32(
+          y_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.r_grad.get(txn, node).as_view().as_ptr(),
+          self.x.r_grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let y_dim = self.y.grad2.get(txn, node).dim();
+      unsafe { arraydiff_cuda_kernel_rect_bwd_f32(
+          y_dim,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad2.get(txn, node).as_view().as_ptr(),
+          self.x.grad2.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
+  }
+}
+
 impl<Op> MultiplyExt<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray1d<f32>> {
   fn mult(&self, x_: Rc<ArrayOp<DeviceArray1d<f32>>>) -> Rc<LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>>> {
     let clk_horizon = x_.data().horizon();
@@ -444,10 +538,12 @@ impl AutodiffOp for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
     if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      // FIXME
       self.a.grad.get_mut(txn, node).as_view_mut().add(1.0, self.x.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
       //self.a.grad.get_mut(txn, node).as_view_mut().add(*self.y.grad.get(txn, node), self.x.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
     }
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      // FIXME
       self.x.grad.get_mut(txn, node).as_view_mut().add(1.0, self.a.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
       //self.x.grad.get_mut(txn, node).as_view_mut().add(*self.y.grad.get(txn, node), self.a.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
     }

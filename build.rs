@@ -34,9 +34,29 @@ fn main() {
     .flag("-std=gnu99")
     .flag("-march=native")
     .flag("-fno-strict-aliasing")
-    .flag("-Ikernels")
+    //.include("kernels")
     .file("kernels/special_map.c")
     .compile("libarraydiff_kernels.a");
+
+  let mut cuda_kernels_src_dir = PathBuf::from(manifest_dir.clone());
+  cuda_kernels_src_dir.push("cuda_kernels");
+  for entry in WalkDir::new(cuda_kernels_src_dir.to_str().unwrap()) {
+    let entry = entry.unwrap();
+    println!("cargo:rerun-if-changed={}", entry.path().display());
+  }
+
+  gcc::Config::new()
+    .compiler("/usr/local/cuda/bin/nvcc")
+    .opt_level(3)
+    .flag("-arch=sm_52")
+    .flag("-prec-div=true")
+    .flag("-prec-sqrt=true")
+    .flag("-Xcompiler")
+    .flag("\'-fno-strict-aliasing\'")
+    .pic(true)
+    .include("/usr/local/cuda/include")
+    .file("cuda_kernels/special_map.cu")
+    .compile("libarraydiff_cuda_kernels.a");
 
   /*let openmp_cc = if cfg!(not(feature = "iomp")) {
     env::var("CC").unwrap_or("gcc".to_owned())

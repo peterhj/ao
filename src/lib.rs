@@ -2,6 +2,8 @@
 //#![feature(get_type_id)]
 #![feature(specialization)]
 
+extern crate async_execution;
+#[cfg(feature = "cuda")] extern crate cuda;
 extern crate densearray;
 #[cfg(feature = "cuda")] extern crate devicemem_cuda;
 extern crate rng;
