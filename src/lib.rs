@@ -452,6 +452,15 @@ pub fn init_seed_rng(master_rng: &mut ChaChaRng) -> Rc<RefCell<ChaChaRng>> {
   rng
 }
 
+pub fn init_spawn_rng(master_rng: &mut ChaChaRng) -> ChaChaRng {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(master_rng.next_u32());
+  }
+  assert_eq!(8, seed.len());
+  ChaChaRng::from_seed(&seed)
+}
+
 pub trait IoBuf: Any {
   fn reset(&mut self);
   fn as_any(&mut self) -> &mut Any;

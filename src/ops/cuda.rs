@@ -13,6 +13,7 @@ use std::collections::{HashMap};
 use std::marker::{PhantomData};
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
+use std::sync::{Arc};
 
 impl<'a, T> CursorBufExt<'a> for CursorBuf<DeviceMem<T>> where T: 'a + Copy {
   type Ref = DeviceMemRef<'a, T>;
@@ -30,6 +31,83 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<DeviceMem<T>> where T: 'a + Copy {
     let end = self.offset + length;
     self.offset += length;
     self.buffer.as_mut().slice_mut(start, end)
+  }
+}
+
+impl ArrayOp<DeviceBatchIoMem<u8>> for ArraySrc<DeviceBatchIoMem<u8>> {
+  fn data(&self) -> ArrayData<DeviceBatchIoMem<u8>> {
+    self.data.clone()
+  }
+}
+
+impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      if self.data.val.accumulate(txn, node, |_| {}) {
+        if reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().is_some() {
+          let &mut (ref batch_idx, ref batch_sz, ref src_mem) = reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().unwrap();
+          let mut val = self.data.val.get_mut(txn, node);
+          let val_len = val.stride();
+          val.set_batch_size(*batch_sz, &*DeviceStream::implicit());
+          val.load(*batch_idx, &**src_mem, DeviceStream::implicit().conn());
+        } else {
+          unimplemented!();
+        }
+      }
+    }
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+    //unimplemented!();
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+    //unimplemented!();
+  }
+
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_backward(&self, _txn: TxnId) {
+  }
+
+  fn _reset_clock(&self) {
+    if self.clock {
+      self.data.reset_clock_all();
+    }
+  }
+
+  fn _set_clock(&self, clk: usize) {
+    if self.clock {
+      self.data.set_clock_all(clk);
+    }
   }
 }
 

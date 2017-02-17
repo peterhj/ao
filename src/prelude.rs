@@ -5,5 +5,7 @@ pub use super::{
   ArrayStorage, BatchArrayStorage,
   ArrayOp, ArrayData,
   init_master_rng,
+  init_seed_rng,
+  init_spawn_rng,
 };
 pub use super::VarKind::*;

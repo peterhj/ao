@@ -20,11 +20,11 @@ use std::rc::{Rc, Weak};
 
 //const VEC_F32_TYPEID: TypeId = TypeId::of::<Vec<f32>>();
 
-pub fn var<A, F>(cons: F) -> Rc<ArraySrc<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
+pub fn src<A, F>(cons: F) -> Rc<ArraySrc<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
   ArraySrc::new(1, false, Rc::new(cons))
 }
 
-pub fn sequential_var<A, F>(horizon: usize, cons: F) -> Rc<ArraySrc<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
+pub fn sequential_src<A, F>(horizon: usize, cons: F) -> Rc<ArraySrc<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
   ArraySrc::new(horizon, true, Rc::new(cons))
 }
 
