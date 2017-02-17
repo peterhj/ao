@@ -485,12 +485,26 @@ impl<T> SpecialMapKernel for LeakRectMapKernel<T> {}
 impl SpecialMapKernel for TanhMapKernel {}
 impl SpecialMapKernel for LogisticMapKernel {}
 
-pub trait SpecialMapExt<T, A> {
-  fn exp(&self) -> Rc<MapOp<A, ExpMapKernel>>;
+pub trait SpecialMapExt</*T,*/ A> {
+  //fn exp(&self) -> Rc<MapOp<A, ExpMapKernel>>;
   fn rect(&self) -> Rc<MapOp<A, RectMapKernel>>;
-  fn leak_rect(&self, c: T) -> Rc<MapOp<A, LeakRectMapKernel<T>>>;
-  fn logistic(&self) -> Rc<MapOp<A, LogisticMapKernel>>;
-  fn tanh(&self) -> Rc<MapOp<A, TanhMapKernel>>;
+  //fn leak_rect(&self, c: T) -> Rc<MapOp<A, LeakRectMapKernel<T>>>;
+  //fn logistic(&self) -> Rc<MapOp<A, LogisticMapKernel>>;
+  //fn tanh(&self) -> Rc<MapOp<A, TanhMapKernel>>;
+}
+
+impl<Op, S> SpecialMapExt</*f32,*/ Array1d<f32, S>> for Rc<Op> where Op: 'static + ArrayOp<Array1d<f32, S>>, S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
+  fn rect(&self) -> Rc<MapOp<Array1d<f32, S>, RectMapKernel>> {
+    let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), clk_horizon, {
+      let x = self.clone().data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let buf = <S as ArrayStorage<usize>>::alloc(dim);
+        Array1d::from_storage(dim, buf)
+      })
+    })
+  }
 }
 
 pub struct MapOp<A, MapF> {
@@ -514,6 +528,12 @@ impl<A, MapF> MapOp<A, MapF> {
       y:    ArrayData::new(clk_horizon, alloc),
       kernel:   kernel,
     })
+  }
+}
+
+impl<A, MapF> ArrayOp<A> for MapOp<A, MapF> where MapOp<A, MapF>: AutodiffOp {
+  fn data(&self) -> ArrayData<A> {
+    self.y.clone()
   }
 }
 
@@ -1434,9 +1454,9 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
   }
 }
 
-pub trait ConvExt<Idx, A, B, V>: ArrayOp<A> where Idx: ArrayIndex {
-  fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V>>;
-  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V>>;
+pub trait ConvExt<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
+  fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
+  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
 }
 
 #[derive(Clone)]
@@ -1446,7 +1466,7 @@ pub struct ConvShape<Idx> where Idx: ArrayIndex {
   pub zero_pad: Idx,
 }
 
-pub struct ConvOp<Idx, A, B, V> where Idx: ArrayIndex {
+pub struct ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
   node_id:  NodeId,
   stack:    OperatorStack,
   shape:    ConvShape<Idx>,
@@ -1457,9 +1477,37 @@ pub struct ConvOp<Idx, A, B, V> where Idx: ArrayIndex {
   x:    ArrayData<V>,
   b:    Option<ArrayData<B>>,
   y:    ArrayData<V>,
+  kernel:   Kernel,
 }
 
-impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, Array3d<f32, S>> where S: DerefMut<Target=[f32]> {
+impl<Idx, A, B, V, Kernel> ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
+  pub fn new(shape: ConvShape<Idx>, a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, b_: Option<Rc<ArrayOp<B>>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+    let node = NodeId::new();
+    let in_degree = match b_ {
+      None    => 2,
+      Some(_) => 3,
+    };
+    let a = a_.data();
+    let x = x_.data();
+    let b = b_.as_ref().map(|b_| b_.data());
+    Rc::new(ConvOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, in_degree),
+      shape:    shape,
+      a_:   a_,
+      x_:   x_,
+      b_:   b_,
+      a:    a,
+      x:    x,
+      b:    b,
+      y:    ArrayData::new(clk_horizon, alloc.clone()),
+      //tmp:  ArrayData::new(1, alloc),
+      kernel:   kernel,
+    })
+  }
+}
+
+impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, Array3d<f32, S>, ()> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

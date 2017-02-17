@@ -3,12 +3,13 @@ use ffi::*;
 use ops::*;
 
 use async_execution::*;
+use cuda_dnn::v5::*;
 use densearray::prelude::*;
 use devicemem_cuda::prelude::*;
 
 use std::any::{Any};
 use std::cell::{Cell, RefCell, Ref, RefMut};
-use std::collections::{HashSet};
+use std::collections::{HashMap};
 use std::marker::{PhantomData};
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
@@ -372,6 +373,19 @@ impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<Re
   }
 }
 
+impl<Op> SpecialMapExt</*f32,*/ DeviceArray1d<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray1d<f32>> {
+  fn rect(&self) -> Rc<MapOp<DeviceArray1d<f32>, RectMapKernel>> {
+    let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), clk_horizon, {
+      let x = self.clone().data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        DeviceArray1d::zeros(dim, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl AutodiffOp for MapOp<DeviceArray1d<f32>, RectMapKernel> {
   fn _id(&self) -> NodeId {
     self.node_id
@@ -551,6 +565,121 @@ impl AutodiffOp for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f
       /*if b.grad.accumulate(txn, node, |g| *g = 0.0) {
         *b.grad.get_mut(txn, node) += *self.y.grad.get(txn, node);
       }*/
+      unimplemented!();
+    }
+  }
+}
+
+pub struct CudnnConvKernelSize {
+  batch_sz:     usize,
+  scratch_req:  usize,
+  fwd:      CudnnConvFwdOp,
+  add:      CudnnAddOp,
+  bwd_w:    CudnnConvBwdFilterOp,
+  bwd_d:    CudnnConvBwdDataOp,
+}
+
+pub struct CudnnConvKernel {
+  sizes:    RefCell<HashMap<usize, CudnnConvKernelSize>>,
+  //scratch:  RefCell<DeviceMem<u8>>,
+}
+
+impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray4d<f32>> {
+  fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel>> {
+    let clk_horizon = x_.data().horizon();
+    let kernel = CudnnConvKernel{sizes: RefCell::new(HashMap::new())};
+    ConvOp::new(shape, self.clone(), x_.clone(), None, kernel, clk_horizon, {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+
+  fn conv_add(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>, b_: Rc<ArrayOp<DeviceArray1d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel>> {
+    unimplemented!();
+  }
+}
+
+impl ArrayOp<DeviceBatchArray3d<f32>> for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> {
+  fn data(&self) -> ArrayData<DeviceBatchArray3d<f32>> {
+    self.y.clone()
+  }
+}
+
+impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      unimplemented!();
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.y.r_val.overwrite(txn, node) {
+      unimplemented!();
+    }
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.a.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+    if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    let node = self._id();
+    if self.a.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+    if self.x.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       unimplemented!();
     }
   }

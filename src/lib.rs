@@ -4,6 +4,7 @@
 
 extern crate async_execution;
 #[cfg(feature = "cuda")] extern crate cuda;
+#[cfg(feature = "cuda")] extern crate cuda_dnn;
 extern crate densearray;
 #[cfg(feature = "cuda")] extern crate devicemem_cuda;
 extern crate rng;
