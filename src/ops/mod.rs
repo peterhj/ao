@@ -710,16 +710,28 @@ pub struct TransformOp<A, B, Transform> {
   kernel:   Transform,
 }
 
+pub struct CastTransform;
 pub struct FlattenTransform;
+pub struct ReifyTransform<Idx> {
+  pub dim:  Idx,
+}
+
+pub trait CastExt<A, B> {
+  fn cast(&self) -> Rc<TransformOp<A, B, CastTransform>>;
+}
 
 pub trait FlattenExt<A, B> {
   fn flatten(&self) -> Rc<TransformOp<A, B, FlattenTransform>>;
 }
 
+pub trait ReifyExt<Idx, A, B> {
+  fn reify(&self, dim: Idx) -> Rc<TransformOp<A, B, ReifyTransform<Idx>>>;
+}
+
 impl<S> FlattenExt<Array3d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array3d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
   fn flatten(&self) -> Rc<TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform>> {
     let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), clk_horizon, {
+    TransformOp::new(self.clone(), FlattenTransform, clk_horizon, {
       let x = self.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -730,8 +742,8 @@ impl<S> FlattenExt<Array3d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array3d<f32,
   }
 }
 
-impl<S> TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform> where S: DerefMut<Target=[f32]> {
-  pub fn new<F>(x_: Rc<ArrayOp<Array3d<f32, S>>>, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> Array1d<f32, S> {
+impl<A, B, Transform> TransformOp<A, B, Transform> {
+  pub fn new<F>(x_: Rc<ArrayOp<A>>, transform: Transform, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> B {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(TransformOp{
@@ -740,7 +752,7 @@ impl<S> TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform> where S:
       x_:   x_,
       x:    x,
       y:    ArrayData::new(clk_horizon, alloc),
-      kernel:   FlattenTransform,
+      kernel:   transform,
     })
   }
 }

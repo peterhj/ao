@@ -56,6 +56,7 @@ fn main() {
     .pic(true)
     .include("/usr/local/cuda/include")
     .file("cuda_kernels/special_map.cu")
+    .file("cuda_kernels/transform.cu")
     .compile("libarraydiff_cuda_kernels.a");
 
   /*let openmp_cc = if cfg!(not(feature = "iomp")) {

@@ -1,5 +1,5 @@
 #[cfg(feature = "cuda")] use cuda::ffi::runtime::{cudaStream_t};
-use libc::*;
+//use libc::*;
 
 #[link(name = "arraydiff_kernels", kind = "static")]
 extern "C" {
@@ -21,4 +21,7 @@ extern "C" {
   // Special map functions.
   pub fn arraydiff_cuda_kernel_rect_fwd_f32(dim: usize, x: *const f32, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_rect_bwd_f32(dim: usize, x: *const f32, dy: *const f32, dx: *mut f32, stream: cudaStream_t);
+
+  pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
 }
