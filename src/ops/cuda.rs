@@ -45,7 +45,16 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.accumulate(txn, node, |_| {}) {
-        if reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().is_some() {
+        if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
+          let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
+          let mut val = self.data.val.get_mut(txn, node);
+          let val_len = val.stride();
+          let batch_sz = src_bufs.len();
+          val.set_batch_size(batch_sz, &*DeviceStream::implicit());
+          for idx in 0 .. batch_sz {
+            val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
+          }
+        } else if reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().is_some() {
           let &mut (ref batch_idx, ref batch_sz, ref src_mem) = reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().unwrap();
           let mut val = self.data.val.get_mut(txn, node);
           let val_len = val.stride();
