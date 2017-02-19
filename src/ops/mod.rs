@@ -11,6 +11,7 @@ use rand::distributions::normal::{Normal};
 use rand::distributions::range::{Range};
 use std::any::{Any, /*TypeId*/};
 use std::cell::{Cell, RefCell, Ref, RefMut};
+use std::cmp::{max};
 use std::collections::{HashSet};
 use std::marker::{PhantomData};
 use std::ops::{Deref, DerefMut};
@@ -1466,16 +1467,29 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
   }
 }
 
-pub trait ConvExt<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
-  fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
-  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
-}
-
 #[derive(Clone)]
 pub struct ConvShape<Idx> where Idx: ArrayIndex {
   pub axes:     Idx::Axes,
+  pub kernel:   Idx,
   pub stride:   Idx,
   pub zero_pad: Idx,
+}
+
+impl ConvShape<(usize, usize)> {
+  pub fn conv2d_output_dim(&self, in_dim: (usize, usize, usize)) -> (usize, usize, usize) {
+    let (in_w, in_h, in_chan) = in_dim;
+    let (kern_w, kern_h) = self.kernel;
+    let (stride_w, stride_h) = self.stride;
+    let (pad_w, pad_h) = self.zero_pad;
+    let out_w = max(0, (in_w + 2 * pad_w - kern_w + stride_w) as isize) as usize / stride_w;
+    let out_h = max(0, (in_h + 2 * pad_h - kern_h + stride_h) as isize) as usize / stride_h;
+    (out_w, out_h, in_chan)
+  }
+}
+
+pub trait ConvExt<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
+  fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
+  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
 }
 
 pub struct ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
@@ -1568,6 +1582,43 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
 
   fn _backward2(&self, txn: TxnId) {
     unimplemented!();
+  }
+}
+
+pub struct AvgPool;
+pub struct MaxPool;
+
+pub trait PoolExt<Idx, V, Kernel> where Idx: ArrayIndex {
+  fn avg_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<AvgPool, Idx, V, Kernel>>;
+  fn max_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<MaxPool, Idx, V, Kernel>>;
+}
+
+pub struct PoolOp<PoolTy, Idx, V, Kernel> where Idx: ArrayIndex {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  shape:    ConvShape<Idx>,
+  x_:   Rc<ArrayOp<V>>,
+  x:    ArrayData<V>,
+  y:    ArrayData<V>,
+  pool_ty:  PoolTy,
+  kernel:   Kernel,
+}
+
+impl<PoolTy, Idx, V, Kernel> PoolOp<PoolTy, Idx, V, Kernel> where Idx: ArrayIndex {
+  pub fn new(pool_ty: PoolTy, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+    let node = NodeId::new();
+    let x = x_.data();
+    Rc::new(PoolOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      shape:    shape,
+      x_:   x_,
+      x:    x,
+      y:    ArrayData::new(clk_horizon, alloc.clone()),
+      //tmp:  ArrayData::new(1, alloc),
+      pool_ty:  pool_ty,
+      kernel:   kernel,
+    })
   }
 }
 

@@ -4,11 +4,13 @@ use ops::*;
 
 use async_execution::*;
 use cuda_dnn::v5::*;
+use cuda_dnn::v5::ffi::*;
 use densearray::prelude::*;
 use devicemem_cuda::prelude::*;
 
 use std::any::{Any};
 use std::cell::{Cell, RefCell, Ref, RefMut};
+use std::cmp::{max};
 use std::collections::{HashMap};
 use std::marker::{PhantomData};
 use std::ops::{Deref, DerefMut};
@@ -826,20 +828,26 @@ pub struct CudnnConvKernelSize {
   batch_sz:     usize,
   scratch_req:  usize,
   fwd:      CudnnConvFwdOp,
-  add:      CudnnAddOp,
   bwd_w:    CudnnConvBwdFilterOp,
   bwd_d:    CudnnConvBwdDataOp,
+  add:      CudnnAddOp,
 }
 
 pub struct CudnnConvKernel {
+  scratch_sz:   Cell<usize>,
+  scratch:  RefCell<DeviceMem<u8>>,
   sizes:    RefCell<HashMap<usize, CudnnConvKernelSize>>,
-  //scratch:  RefCell<DeviceMem<u8>>,
 }
 
 impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray4d<f32>> {
   fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel>> {
     let clk_horizon = x_.data().horizon();
-    let kernel = CudnnConvKernel{sizes: RefCell::new(HashMap::new())};
+    // TODO: the default of 4096 might need to be decreased.
+    let kernel = CudnnConvKernel{
+      scratch_sz:   Cell::new(4096),
+      scratch:      RefCell::new(DeviceMem::zeros(4096, DeviceStream::implicit().conn())),
+      sizes:        RefCell::new(HashMap::new()),
+    };
     ConvOp::new(shape, self.clone(), x_.clone(), None, kernel, clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
@@ -895,17 +903,139 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
     if self.y.val.overwrite(txn, node) {
-      unimplemented!();
+      let x_dim = self.x.val.get(txn, node).dim();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let mut sizes = self.kernel.sizes.borrow_mut();
+      if !sizes.contains_key(&batch_sz) {
+        let mut workspace_size = 0;
+        let (in_w, in_h, in_chan) = x_dim;
+        let (out_w, out_h, out_chan) = self.shape.conv2d_output_dim(x_dim);
+        let (kernel_w, kernel_h) = self.shape.kernel;
+        let (stride_w, stride_h) = self.shape.stride;
+        let (pad_w, pad_h) = self.shape.zero_pad;
+        let conn = DeviceStream::implicit().conn();
+        let fwd = CudnnConvFwdOp::create_fastest(
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+            CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+            CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+            &*conn.cudnn(),
+        ).unwrap();
+        workspace_size = max(workspace_size, fwd.work_size);
+        let bwd_w = CudnnConvBwdFilterOp::create_fastest(
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+            CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+            CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
+            &*conn.cudnn(),
+        ).unwrap();
+        workspace_size = max(workspace_size, bwd_w.work_size);
+        let bwd_d = CudnnConvBwdDataOp::create_fastest(
+            CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+            CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+            &*conn.cudnn(),
+        ).unwrap();
+        workspace_size = max(workspace_size, bwd_d.work_size);
+        let add = CudnnAddOp::new(
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+        );
+        let conv = CudnnConvKernelSize{
+          batch_sz:     batch_sz,
+          scratch_req:  workspace_size,
+          fwd:      fwd,
+          bwd_w:    bwd_w,
+          bwd_d:    bwd_d,
+          add:      add,
+        };
+        sizes.insert(batch_sz, conv);
+        if workspace_size > self.kernel.scratch_sz.get() {
+          self.kernel.scratch_sz.set(workspace_size);
+          *self.kernel.scratch.borrow_mut() = DeviceMem::zeros(workspace_size, conn);
+        }
+      }
+      let conn = DeviceStream::implicit().conn();
+      self.a.val.get(txn, node).as_view().wait(&conn);
+      if let Some(ref b) = self.b {
+        b.val.get(txn, node).as_view().wait(&conn);
+      }
+      self.x.val.get(txn, node).as_view().wait(&conn);
+      self.y.val.get_excl(txn, node).as_view().wait(&conn);
+      self.kernel.scratch.borrow_mut().as_ref().wait(&conn);
+      let conv = sizes.get(&batch_sz).unwrap();
+      unsafe { conv.fwd.forward(
+          1.0,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.a.val.get(txn, node).as_view().as_ptr(),
+          0.0,
+          self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          self.kernel.scratch.borrow_mut().as_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ) }.unwrap();
+      if let Some(ref b) = self.b {
+        unsafe { conv.add.forward(
+            1.0,
+            b.val.get(txn, node).as_view().as_ptr(),
+            1.0,
+            self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+            &*conn.cudnn(),
+        ) }.unwrap();
+      }
+      self.a.val.get(txn, node).as_view().post(&conn);
+      if let Some(ref b) = self.b {
+        b.val.get(txn, node).as_view().post(&conn);
+      }
+      self.x.val.get(txn, node).as_view().post(&conn);
+      self.y.val.get_excl(txn, node).as_view().post(&conn);
+      self.kernel.scratch.borrow_mut().as_ref().post(&conn);
     }
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    let mut sizes = self.kernel.sizes.borrow_mut();
+    let conv = sizes.get(&batch_sz).unwrap();
+    // TODO: wait-post.
     if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-      unimplemented!();
+      let conn = DeviceStream::implicit().conn();
+      unsafe { conv.bwd_w.backward_filter(
+          1.0,
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          1.0,
+          self.a.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          self.kernel.scratch.borrow_mut().as_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ).unwrap() };
     }
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-      unimplemented!();
+      let conn = DeviceStream::implicit().conn();
+      unsafe { conv.bwd_d.backward_data(
+          1.0,
+          self.a.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          1.0,
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          self.kernel.scratch.borrow_mut().as_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ).unwrap() };
+    }
+    if let Some(ref b) = self.b {
+      if b.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+        let conn = DeviceStream::implicit().conn();
+        unsafe { conv.bwd_w.backward_bias(
+            1.0,
+            self.y.grad.get(txn, node).as_view().as_ptr(),
+            1.0,
+            b.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+            &*conn.cudnn(),
+        ).unwrap() };
+      }
     }
   }
 
@@ -936,3 +1066,257 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
     }
   }
 }
+
+pub struct CudnnPoolKernelSize {
+  batch_sz: usize,
+  pooling:  CudnnPoolingOp,
+}
+
+pub struct CudnnPoolKernel {
+  sizes:    RefCell<HashMap<usize, CudnnPoolKernelSize>>,
+  //scratch:  RefCell<DeviceMem<u8>>,
+}
+
+impl<PoolTy, Kernel> ArrayOp<DeviceBatchArray3d<f32>> for PoolOp<PoolTy, (usize, usize), DeviceBatchArray3d<f32>, Kernel> where PoolOp<PoolTy, (usize, usize), DeviceBatchArray3d<f32>, Kernel>: AutodiffOp {
+  fn data(&self) -> ArrayData<DeviceBatchArray3d<f32>> {
+    self.y.clone()
+  }
+}
+
+impl AutodiffOp for PoolOp<AvgPool, (usize, usize), DeviceBatchArray3d<f32>, CudnnPoolKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let x_dim = self.x.val.get(txn, node).dim();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let mut sizes = self.kernel.sizes.borrow_mut();
+      if !sizes.contains_key(&batch_sz) {
+        let (in_w, in_h, chan) = x_dim;
+        let (out_w, out_h, _) = self.shape.conv2d_output_dim(x_dim);
+        let (kern_w, kern_h) = self.shape.kernel;
+        let (stride_w, stride_h) = self.shape.stride;
+        let (pad_w, pad_h) = self.shape.zero_pad;
+        let pooling = match CudnnPoolingOp::create_2d(
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, chan, batch_sz).unwrap(),
+            kern_w,   kern_h,
+            stride_w, stride_h,
+            pad_w,    pad_h,
+            cudnnPoolingMode_t::AverageCountIncludingPadding,
+            //cudnnPoolingMode_t::Max,
+        ) {
+          Err(e) => panic!("failed to create CudnnPoolingOp: {:?}", e),
+          Ok(pooling) => pooling,
+        };
+        let pool = CudnnPoolKernelSize{
+          batch_sz: batch_sz,
+          pooling:  pooling,
+        };
+        sizes.insert(batch_sz, pool);
+      }
+      let conn = DeviceStream::implicit().conn();
+      self.x.val.get(txn, node).as_view().wait(&conn);
+      self.y.val.get_excl(txn, node).as_view().wait(&conn);
+      let pool = sizes.get(&batch_sz).unwrap();
+      unsafe { pool.pooling.forward(
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ) }.unwrap();
+      self.x.val.get(txn, node).as_view().post(&conn);
+      self.y.val.get_excl(txn, node).as_view().post(&conn);
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let x_dim = self.x.val.get(txn, node).dim();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let mut sizes = self.kernel.sizes.borrow_mut();
+      let conn = DeviceStream::implicit().conn();
+      self.x.val.get(txn, node).as_view().wait(&conn);
+      self.y.val.get_excl(txn, node).as_view().wait(&conn);
+      self.y.grad.get(txn, node).as_view().wait(&conn);
+      self.x.grad.get_mut(txn, node).as_view().wait(&conn);
+      let pool = sizes.get(&batch_sz).unwrap();
+      unsafe { pool.pooling.backward(
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ) }.unwrap();
+      self.x.val.get(txn, node).as_view().post(&conn);
+      self.y.val.get_excl(txn, node).as_view().post(&conn);
+      self.y.grad.get(txn, node).as_view().post(&conn);
+      self.x.grad.get_mut(txn, node).as_view().post(&conn);
+    }
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.y.r_val.overwrite(txn, node) {
+      unimplemented!();
+    }
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+  }
+}
+
+impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, CudnnPoolKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let x_dim = self.x.val.get(txn, node).dim();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let mut sizes = self.kernel.sizes.borrow_mut();
+      if !sizes.contains_key(&batch_sz) {
+        let (in_w, in_h, chan) = x_dim;
+        let (out_w, out_h, _) = self.shape.conv2d_output_dim(x_dim);
+        let (kern_w, kern_h) = self.shape.kernel;
+        let (stride_w, stride_h) = self.shape.stride;
+        let (pad_w, pad_h) = self.shape.zero_pad;
+        let pooling = match CudnnPoolingOp::create_2d(
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, chan, batch_sz).unwrap(),
+            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, chan, batch_sz).unwrap(),
+            kern_w,   kern_h,
+            stride_w, stride_h,
+            pad_w,    pad_h,
+            cudnnPoolingMode_t::Max,
+        ) {
+          Err(e) => panic!("failed to create CudnnPoolingOp: {:?}", e),
+          Ok(pooling) => pooling,
+        };
+        let pool = CudnnPoolKernelSize{
+          batch_sz: batch_sz,
+          pooling:  pooling,
+        };
+        sizes.insert(batch_sz, pool);
+      }
+      let conn = DeviceStream::implicit().conn();
+      self.x.val.get(txn, node).as_view().wait(&conn);
+      self.y.val.get_excl(txn, node).as_view().wait(&conn);
+      let pool = sizes.get(&batch_sz).unwrap();
+      unsafe { pool.pooling.forward(
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ) }.unwrap();
+      self.x.val.get(txn, node).as_view().post(&conn);
+      self.y.val.get_excl(txn, node).as_view().post(&conn);
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let x_dim = self.x.val.get(txn, node).dim();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let mut sizes = self.kernel.sizes.borrow_mut();
+      let conn = DeviceStream::implicit().conn();
+      self.x.val.get(txn, node).as_view().wait(&conn);
+      self.y.val.get_excl(txn, node).as_view().wait(&conn);
+      self.y.grad.get(txn, node).as_view().wait(&conn);
+      self.x.grad.get_mut(txn, node).as_view().wait(&conn);
+      let pool = sizes.get(&batch_sz).unwrap();
+      unsafe { pool.pooling.backward(
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          &*conn.cudnn(),
+      ) }.unwrap();
+      self.x.val.get(txn, node).as_view().post(&conn);
+      self.y.val.get_excl(txn, node).as_view().post(&conn);
+      self.y.grad.get(txn, node).as_view().post(&conn);
+      self.x.grad.get_mut(txn, node).as_view().post(&conn);
+    }
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.y.r_val.overwrite(txn, node) {
+      unimplemented!();
+    }
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    let node = self._id();
+    if self.x.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+  }
+}
+
