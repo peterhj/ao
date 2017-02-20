@@ -345,11 +345,11 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
   }
 }
 
-impl ArrayOp<Array2d<f32>> for ArraySrc<Array2d<f32>> {
+/*impl ArrayOp<Array2d<f32>> for ArraySrc<Array2d<f32>> {
   fn data(&self) -> ArrayData<Array2d<f32>> {
     self.data.clone()
   }
-}
+}*/
 
 impl AutodiffOp for ArraySrc<Array2d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
@@ -417,11 +417,11 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
   }
 }
 
-impl ArrayOp<Array4d<f32>> for ArraySrc<Array4d<f32>> {
+/*impl ArrayOp<Array4d<f32>> for ArraySrc<Array4d<f32>> {
   fn data(&self) -> ArrayData<Array4d<f32>> {
     self.data.clone()
   }
-}
+}*/
 
 impl AutodiffOp for ArraySrc<Array4d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
@@ -918,20 +918,6 @@ pub trait ReifyExt<Idx, A, B> {
   fn reify(&self, dim: Idx) -> Rc<TransformOp<A, B, ReifyTransform<Idx>>>;
 }
 
-impl<S> FlattenExt<Array3d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array3d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
-  fn flatten(&self) -> Rc<TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), FlattenTransform, clk_horizon, {
-      let x = self.clone().data();
-      Rc::new(move |txn, node| {
-        let dim = x.val.get(txn, node).dim();
-        let buf = <S as ArrayStorage<usize>>::alloc(dim.flat_len());
-        Array1d::from_storage(dim.flat_len(), buf)
-      })
-    })
-  }
-}
-
 impl<A, B, Transform> TransformOp<A, B, Transform> {
   pub fn new<F>(x_: Rc<ArrayOp<A>>, transform: Transform, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> B {
     let node = NodeId::new();
@@ -943,6 +929,20 @@ impl<A, B, Transform> TransformOp<A, B, Transform> {
       x:    x,
       y:    ArrayData::new(clk_horizon, alloc),
       kernel:   transform,
+    })
+  }
+}
+
+impl<S> FlattenExt<Array3d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array3d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
+  fn flatten(&self) -> Rc<TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform>> {
+    let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), FlattenTransform, clk_horizon, {
+      let x = self.clone().data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let buf = <S as ArrayStorage<usize>>::alloc(dim.flat_len());
+        Array1d::from_storage(dim.flat_len(), buf)
+      })
     })
   }
 }
@@ -1141,7 +1141,7 @@ pub trait DummyExt<A> {
 impl<S> DummyExt<Array1d<f32, S>> for Rc<ArrayOp<Array1d<f32, S>>> where S: DerefMut<Target=[f32]> {
 }
 
-pub trait MultiplyExt<A, V, W, B> {
+pub trait MultExt<A, V, W, B> {
   fn mult(&self, x: Rc<ArrayOp<V>>) -> Rc<LinearOp<A, V, W, B>>;
   fn mult_add(&self, x: Rc<ArrayOp<V>>, b: Rc<ArrayOp<B>>) -> Rc<LinearOp<A, V, W, B>>;
 }
@@ -1184,7 +1184,7 @@ impl<A, V, W, B> LinearOp<A, V, W, B> {
   }
 }
 
-impl<Op, S> MultiplyExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> where Op: 'static + ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
+impl<Op, S> MultExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> where Op: 'static + ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
   fn mult(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_, None, clk_horizon, Rc::new(|_, _| 0.0_f32))
@@ -1273,7 +1273,7 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
   }
 }
 
-impl<S> MultiplyExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
+impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
   fn mult(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
@@ -1439,7 +1439,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
   }
 }
 
-impl<S> MultiplyExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
+impl<S> MultExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
   fn mult(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
@@ -2362,6 +2362,28 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   target:   Option<ArrayData<Target>>,
   loss:     ArrayData<Loss>,
   link:     Link,
+}
+
+impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> {
+  pub fn new(x_: Rc<ArrayOp<A>>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
+    let node = NodeId::new();
+    let in_degree = match target_ {
+      None      => 1,
+      Some(_)   => 2,
+    };
+    let x = x_.data();
+    let target = target_.as_ref().map(|t_| t_.data());
+    Rc::new(SoftmaxLoss{
+      node_id:  node,
+      stack:    OperatorStack::new(node, in_degree),
+      x_:       x_,
+      target_:  target_,
+      x:        x,
+      target:   target,
+      loss:     ArrayData::new(clk_horizon, alloc.clone()),
+      link:     link,
+    })
+  }
 }
 
 pub trait SoftmaxKLLossExt<A, L> {
