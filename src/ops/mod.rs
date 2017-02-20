@@ -52,9 +52,198 @@ impl<A> ArraySrc<A> {
   }
 }
 
-impl ArrayOp<Array1d<f32>> for ArraySrc<Array1d<f32>> {
-  fn data(&self) -> ArrayData<Array1d<f32>> {
+impl<A> ArrayOp<A> for ArraySrc<A> where ArraySrc<A>: AutodiffOp {
+  default fn data(&self) -> ArrayData<A> {
     self.data.clone()
+  }
+}
+
+impl AutodiffOp for ArraySrc<f32> {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      if self.data.val.overwrite(txn, node) {
+        /*if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+          let mut val = self.data.val.get_excl(txn, node);
+          let val_len = val.dim();
+          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          val.as_view_mut().copy(reader.read_buf(val_len).flatten());
+        } else {
+          unimplemented!();
+        }*/
+      }
+    }
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        let mut val = self.data.val.get(txn, node);
+        let val_len = val.dim();
+        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        writer.write_buf(val_len).flatten_mut().copy(val.as_view());
+      } else {
+        unimplemented!();
+      }*/
+    }
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.grad.var()) {
+      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        let mut grad = self.data.grad.get(txn, node);
+        let grad_len = grad.dim();
+        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
+      } else {
+        unimplemented!();
+      }*/
+    }
+  }
+
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, _txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.data.r_val.overwrite(txn, node) {
+      *self.data.r_val.get_excl(txn, node) = 0.0;
+    }
+  }
+
+  fn _r_backward(&self, _txn: TxnId) {
+  }
+
+  fn _reset_clock(&self) {
+    if self.clock {
+      self.data.reset_clock_all();
+    }
+  }
+
+  fn _set_clock(&self, clk: usize) {
+    if self.clock {
+      self.data.set_clock_all(clk);
+    }
+  }
+}
+
+impl AutodiffOp for ArraySrc<Batch<u32>> {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      if self.data.val.overwrite(txn, node) {
+        /*if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+          let mut val = self.data.val.get_excl(txn, node);
+          let val_len = val.dim();
+          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          val.as_view_mut().copy(reader.read_buf(val_len).flatten());
+        } else {
+          unimplemented!();
+        }*/
+      }
+    }
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        let mut val = self.data.val.get(txn, node);
+        let val_len = val.dim();
+        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        writer.write_buf(val_len).flatten_mut().copy(val.as_view());
+      } else {
+        unimplemented!();
+      }*/
+    }
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+    let node = self._id();
+    if vars.contains(&self.data.grad.var()) {
+      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        let mut grad = self.data.grad.get(txn, node);
+        let grad_len = grad.dim();
+        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
+      } else {
+        unimplemented!();
+      }*/
+    }
+  }
+
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, _txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    if self.data.r_val.overwrite(txn, node) {
+      // TODO
+      //*self.data.r_val.get_excl(txn, node) = 0.0;
+    }
+  }
+
+  fn _r_backward(&self, _txn: TxnId) {
+  }
+
+  fn _reset_clock(&self) {
+    if self.clock {
+      self.data.reset_clock_all();
+    }
+  }
+
+  fn _set_clock(&self, clk: usize) {
+    if self.clock {
+      self.data.set_clock_all(clk);
+    }
   }
 }
 
@@ -1397,12 +1586,117 @@ pub struct ElemLinearOp<A, V, K> {
   x:    ArrayData<V>,
   b:    Option<ArrayData<A>>,
   y:    ArrayData<V>,
-  tmp:  ArrayData<V>,
+  //tmp:  ArrayData<V>,
   kernel:   K,
+}
+
+impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
+  pub fn new(a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, b_: Option<Rc<ArrayOp<A>>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+    let node = NodeId::new();
+    let in_degree = match b_ {
+      None    => 2,
+      Some(_) => 3,
+    };
+    let a = a_.data();
+    let x = x_.data();
+    let b = b_.as_ref().map(|b_| b_.data());
+    Rc::new(ElemLinearOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, in_degree),
+      a_:   a_,
+      x_:   x_,
+      b_:   b_,
+      a:    a,
+      x:    x,
+      b:    b,
+      y:    ArrayData::new(clk_horizon, alloc.clone()),
+      //tmp:  ArrayData::new(clk_horizon, alloc.clone()),
+      kernel:   kernel,
+    })
+  }
 }
 
 pub struct ScaleElemKernel;
 pub struct NormalizeElemKernel;
+
+pub trait ScalarLinearExt<A, V> {
+  fn scale(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, ScaleElemKernel>>;
+}
+
+pub trait ElemLinearExt<A, V> {
+  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, ScaleElemKernel>>;
+  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, ScaleElemKernel>>;
+  fn normalize(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, NormalizeElemKernel>>;
+}
+
+impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<A, V, Kernel>: AutodiffOp {
+  fn data(&self) -> ArrayData<V> {
+    self.y.clone()
+  }
+}
+
+impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, ScaleElemKernel> where S: DerefMut<Target=[f32]> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    // TODO
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      if let Some(ref b) = self.b {
+      }
+    }
+    unimplemented!();
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+}
 
 impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, NormalizeElemKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
@@ -2065,16 +2359,24 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   x_:       Rc<ArrayOp<A>>,
   target_:  Option<Rc<ArrayOp<Target>>>,
   x:        ArrayData<A>,
-  target:   ArrayData<Target>,
+  target:   Option<ArrayData<Target>>,
   loss:     ArrayData<Loss>,
   link:     Link,
 }
 
 pub trait SoftmaxKLLossExt<A, L> {
-  fn softmax_kl2_loss(x: Rc<ArrayOp<A>>, target: Rc<ArrayOp<A>>) -> Rc<SoftmaxLoss<A, A, L, KL2LossLink>>;
+  fn softmax_kl2_loss(x_: Rc<ArrayOp<A>>, target_: Rc<ArrayOp<A>>) -> Rc<SoftmaxLoss<A, A, L, KL2LossLink>>;
 }
 
-impl<S, Target, Loss, Link> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Target, Loss, Link> where S: DerefMut<Target=[f32]>, Link: LikelihoodLossLink {
+pub trait SoftmaxNLLLossExt<Op, A, Target, L> where Op: ArrayOp<A> {
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>;
+}
+
+pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> Rc<SoftmaxLoss<A, Target, L, NLLLossLink>> where Rc<Op>: SoftmaxNLLLossExt<Op, A, Target, L>, Op: ArrayOp<A> {
+  <Rc<Op> as SoftmaxNLLLossExt<Op, A, Target, L>>::softmax_nll_loss(x_, target_)
+}
+
+/*impl<S, Target, Loss, Link> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Target, Loss, Link> where S: DerefMut<Target=[f32]>, Link: LikelihoodLossLink {
   default fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -2106,9 +2408,37 @@ impl<S, Target, Loss, Link> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Tar
   default fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }
-}
+}*/
 
 impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32, S>, Batch<f32>, KL2LossLink> where S: DerefMut<Target=[f32]> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      if let Some(ref target_) = self.target_ {
+        target_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref target_) = self.target_ {
+        target_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
   fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }
@@ -2127,6 +2457,34 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32, S>, B
 }
 
 impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<(u32, f32)>, Batch<f32>, LRLossLink> where S: DerefMut<Target=[f32]> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      if let Some(ref target_) = self.target_ {
+        target_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref target_) = self.target_ {
+        target_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
   fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }
@@ -2145,6 +2503,34 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<(u32, f32)>, Batc
 }
 
 impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<u32>, Batch<f32>, NLLLossLink> where S: DerefMut<Target=[f32]> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      if let Some(ref target_) = self.target_ {
+        target_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref target_) = self.target_ {
+        target_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
   fn _forward(&self, txn: TxnId) {
     unimplemented!();
   }

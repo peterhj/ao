@@ -824,6 +824,83 @@ impl AutodiffOp for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f
   }
 }
 
+impl<Op> ScalarLinearExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + ArrayOp<f32> {
+  fn scale(&self, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, ScaleElemKernel>> {
+    let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, ScaleElemKernel, clk_horizon, {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, ScaleElemKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    // TODO
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      if let Some(ref b) = self.b {
+      }
+    }
+    unimplemented!();
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+}
+
 pub struct CudnnConvKernelSize {
   batch_sz:     usize,
   scratch_req:  usize,
@@ -1320,3 +1397,60 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
   }
 }
 
+impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, Batch<u32>, Batch<f32>> for Rc<Op> where Op: ArrayOp<DeviceBatchArray1d<f32>> {
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Batch<u32>>>) -> Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, Batch<u32>, Batch<f32>, NLLLossLink>> {
+    unimplemented!();
+  }
+}
+
+impl ArrayOp<Batch<f32>> for SoftmaxLoss<DeviceBatchArray1d<f32>, Batch<u32>, Batch<f32>, NLLLossLink> {
+  fn data(&self) -> ArrayData<Batch<f32>> {
+    self.loss.clone()
+  }
+}
+
+impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, Batch<u32>, Batch<f32>, NLLLossLink> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      if let Some(ref target_) = self.target_ {
+        target_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref target_) = self.target_ {
+        target_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    unimplemented!();
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    unimplemented!();
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    unimplemented!();
+  }
+}
