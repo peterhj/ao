@@ -1105,14 +1105,14 @@ impl AutodiffOp for LinearOp<DeviceArray2d<f32>, DeviceBatchArray1d<f32>, Device
       self.a.grad.get_mut(txn, node).as_view_mut()
         .matrix_prod(
             1.0,
-            self.x.val.get(txn, node).as_view(), Transpose::N,
-            self.y.grad.get(txn, node).as_view(), Transpose::T,
+            self.y.grad.get(txn, node).as_view(), Transpose::N,
+            self.x.val.get(txn, node).as_view(), Transpose::T,
             1.0,
             DeviceStream::implicit().conn(),
         );
     }
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-      let batch_sz = self.y.grad.get(txn, node).batch_size();
+      let batch_sz = self.x.val.get(txn, node).batch_size();
       self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
       self.x.grad.get_mut(txn, node).as_view_mut()
         .matrix_prod(
@@ -1888,7 +1888,7 @@ impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Dev
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
-    let x_dim = self.x.grad.get(txn, node).dim();
+    let x_dim = self.x.val.get(txn, node).dim();
     let batch_sz = self.loss.grad.get(txn, node).batch_size();
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       let target = match self.target.as_ref() {
