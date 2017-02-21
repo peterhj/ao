@@ -538,6 +538,7 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
 }
 
 pub trait ArrayOp<A>: AutodiffOp {
+  fn downgrade(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op.clone() }
   fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op.clone() }
   fn data(&self) -> ArrayData<A>;
 }

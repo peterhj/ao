@@ -24,4 +24,40 @@ extern "C" {
 
   pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
+
+  pub fn arraydiff_cuda_kernel_blockreduce_max_argmax_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      x: *const f32,
+      x_max: *mut f32,
+      x_argmax: *mut u32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_blockreduce_sum_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      x: *const f32,
+      x_sum: *mut f32,
+      stream: cudaStream_t);
+
+  pub fn arraydiff_cuda_kernel_block_softmax_fwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_softmax_nll_loss_fwd_f32(
+      dim: usize,
+      batch_sz: usize,
+      y: *const f32,
+      t: *const u32,
+      loss: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_softmax_nll_loss_bwd_f32(
+      dim: usize,
+      batch_sz: usize,
+      y: *const f32,
+      t: *const u32,
+      df: *const f32,
+      dx: *mut f32,
+      stream: cudaStream_t);
 }

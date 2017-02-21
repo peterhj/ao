@@ -1,0 +1,135 @@
+#include <cuda_runtime_api.h>
+#include <math_constants.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) / 32)); })
+
+__global__ void block_softmax_fwd(
+    uint32_t block_dim,
+    uint32_t num_blocks,
+    const float *x,
+    float *y)
+{
+  __shared__ float cache[1024 + 32];
+  //__shared__ uint32_t cache_idx[1024 + 32];
+  //__shared__ float result[1];
+  uint32_t tid = threadIdx.x;
+  uint32_t block = blockIdx.x;
+  uint32_t i = tid + block * block_dim;
+
+  float x_i = 0.0f;
+  if (tid < block_dim && block < num_blocks) {
+    x_i = x[i];
+    cache[OFFSET_BANK(tid)] = x_i;
+  } else {
+    cache[OFFSET_BANK(tid)] = -CUDART_INF_F;
+  }
+  __syncthreads();
+  for (uint32_t s = 1; s < blockDim.x; s *= 2) {
+    if (tid < block_dim && block < num_blocks) {
+      if (tid % (2*s) == 0 && (tid + s) < block_dim) {
+        if (cache[OFFSET_BANK(tid)] < cache[OFFSET_BANK(tid + s)]) {
+          cache[OFFSET_BANK(tid)] = cache[OFFSET_BANK(tid + s)];
+        }
+      }
+    }
+    __syncthreads();
+  }
+  float max_logit = cache[0];
+  __syncthreads();
+
+  float z_i = 0.0f;
+  if (tid < block_dim && block < num_blocks) {
+    z_i = expf(x_i - max_logit);
+    cache[OFFSET_BANK(tid)] = z_i;
+  } else {
+    cache[OFFSET_BANK(tid)] = 0.0f;
+  }
+  __syncthreads();
+  for (uint32_t s = 1; s < blockDim.x; s *= 2) {
+    if (tid < block_dim && block < num_blocks) {
+      if (tid % (2*s) == 0 && (tid + s) < block_dim) {
+        cache[OFFSET_BANK(tid)] += cache[OFFSET_BANK(tid + s)];
+      }
+    }
+    __syncthreads();
+  }
+  float sum_factor = cache[0];
+  __syncthreads();
+
+  if (tid < block_dim && block < num_blocks) {
+    y[i] = z_i / sum_factor;
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_block_softmax_fwd_f32(
+    size_t block_dim,
+    size_t num_blocks,
+    const float *x,
+    float *y,
+    cudaStream_t stream)
+{
+  // XXX: assert(block_dim <= 1024);
+  // FIXME(20151022): could make more efficient use of blocks but w/e.
+  block_softmax_fwd<<<num_blocks, 1024, 0, stream>>>(
+      block_dim, num_blocks, x, y);
+}
+
+__global__ void softmax_nll_loss_fwd_f32(
+    uint32_t dim,
+    uint32_t batch_sz,
+    const float *y,
+    const uint32_t *t,
+    float *loss)
+{
+  uint32_t batch_idx = threadIdx.x + blockDim.x * blockIdx.x;
+  if (batch_idx < batch_sz) {
+    uint32_t offset_i = t[batch_idx];
+    uint32_t idx = offset_i + dim * batch_idx;
+    loss[batch_idx] = -logf(y[idx]);
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_softmax_nll_loss_fwd_f32(
+    size_t dim,
+    size_t batch_sz,
+    const float *y,
+    const uint32_t *t,
+    float *loss,
+    cudaStream_t stream)
+{
+  softmax_nll_loss_fwd_f32<<<(batch_sz+1024-1)/1024, 1024, 0, stream>>>(
+      dim, batch_sz, y, t, loss);
+}
+
+__global__ void softmax_nll_loss_bwd_f32(
+    uint32_t dim,
+    uint32_t batch_sz,
+    const float *y,
+    const uint32_t *t,
+    const float *df,
+    float *dx)
+{
+  uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
+  uint32_t i = idx % dim;
+  uint32_t batch_idx = idx / dim;
+  if (i < dim && batch_idx < batch_sz) {
+    uint32_t t_i = t[batch_idx];
+    dx[idx] += df[batch_idx] * (y[idx] - (float)(i == t_i));
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_softmax_nll_loss_bwd_f32(
+    size_t dim,
+    size_t batch_sz,
+    const float *y,
+    const uint32_t *t,
+    const float *df,
+    float *dx,
+    cudaStream_t stream)
+{
+  uint32_t n = dim * batch_sz;
+  softmax_nll_loss_bwd_f32<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+      dim, batch_sz, y, t, df, dx);
+}

@@ -55,6 +55,8 @@ fn main() {
     .flag("\'-fno-strict-aliasing\'")
     .pic(true)
     .include("/usr/local/cuda/include")
+    .file("cuda_kernels/reduce.cu")
+    .file("cuda_kernels/softmax.cu")
     .file("cuda_kernels/special_map.cu")
     .file("cuda_kernels/transform.cu")
     .compile("libarraydiff_cuda_kernels.a");

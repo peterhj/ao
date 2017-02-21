@@ -1190,7 +1190,7 @@ impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, ScaleElemKernel> 
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     // TODO
-    unimplemented!();
+    //unimplemented!();
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
@@ -1705,17 +1705,96 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
   }
 }
 
-impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: ArrayOp<DeviceBatchArray1d<f32>> {
-  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>> {
+impl AutodiffObjective for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel> {
+  fn _set_source(&self, txn: TxnId) {
+    let node = self._id();
+    // TODO
+    /*if !self.y.grad.accumulate(txn, node, |g| *g = 1.0) {
+      assert_eq!(1.0, *self.y.grad.get_mut(txn, node));
+    }*/
     unimplemented!();
   }
 }
 
-impl ArrayOp<DeviceIoBatch<f32>> for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink> {
+impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.y.val.overwrite(txn, node) {
+      /*let x_val = self.x.val.get(txn, node);
+      let mut y_val = self.y.val.get_excl(txn, node);
+      *y_val = 0.0;
+      for i in 0 .. batch_sz {
+        *y_val += x_val[i];
+      }*/
+      assert!(batch_sz <= 1024);
+      // TODO
+      //self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      /*let mut x_grad = self.x.grad.get_mut(txn, node);
+      let y_grad = self.y.grad.get(txn, node);
+      for i in 0 .. batch_sz {
+        x_grad[i] += *y_grad;
+      }*/
+      // TODO
+      //self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
+    }
+  }
+}
+
+impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>> {
+    let clk_horizon = x_.data().horizon();
+    SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, clk_horizon, {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let x_dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray1d::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    }, {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+/*impl ArrayOp<DeviceIoBatch<f32>> for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink> {
   fn data(&self) -> ArrayData<DeviceIoBatch<f32>> {
     self.loss.clone()
   }
-}
+}*/
 
 impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink> {
   fn _id(&self) -> NodeId {
@@ -1747,11 +1826,60 @@ impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Dev
   }
 
   fn _forward(&self, txn: TxnId) {
-    unimplemented!();
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.prob.val.overwrite(txn, node) {
+      self.prob.val.get_excl(txn, node).set_batch_size(batch_sz);
+      if x_dim <= 1024 {
+        unsafe { arraydiff_cuda_kernel_block_softmax_fwd_f32(
+            x_dim,
+            batch_sz,
+            self.x.val.get(txn, node).as_view().as_ptr(),
+            self.prob.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+            DeviceStream::implicit().conn().raw_stream().ptr,
+        ) };
+      } else {
+        unimplemented!();
+      }
+    }
+    if self.loss.val.overwrite(txn, node) {
+      let target = match self.target.as_ref() {
+        None    => panic!("SoftmaxLoss with NLL link requires a target"),
+        Some(t) => t,
+      };
+      self.loss.val.get_excl(txn, node).set_batch_size(batch_sz);
+      unsafe { arraydiff_cuda_kernel_softmax_nll_loss_fwd_f32(
+          x_dim,
+          batch_sz,
+          self.prob.val.get_excl(txn, node).as_view().as_ptr(),
+          target.val.get(txn, node).as_ref().as_ptr(),
+          self.loss.val.get_excl(txn, node).as_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
+    let node = self._id();
+    let x_dim = self.x.grad.get(txn, node).dim();
+    let batch_sz = self.loss.grad.get(txn, node).batch_size();
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let target = match self.target.as_ref() {
+        None    => panic!("SoftmaxLoss with NLL link requires a target"),
+        Some(t) => t,
+      };
+      self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
+      unsafe { arraydiff_cuda_kernel_softmax_nll_loss_bwd_f32(
+          x_dim,
+          batch_sz,
+          self.prob.val.get_excl(txn, node).as_view().as_ptr(),
+          target.val.get(txn, node).as_ref().as_ptr(),
+          self.loss.grad.get(txn, node).as_ref().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          DeviceStream::implicit().conn().raw_stream().ptr,
+      ) };
+    }
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {

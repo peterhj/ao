@@ -2431,31 +2431,56 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   stack:    OperatorStack,
   x_:       Rc<ArrayOp<A>>,
   target_:  Option<Rc<ArrayOp<Target>>>,
+  prob_:    Rc<PassOp<A>>,
+  loss_:    Rc<PassOp<Loss>>,
   x:        ArrayData<A>,
   target:   Option<ArrayData<Target>>,
+  prob:     ArrayData<A>,
   loss:     ArrayData<Loss>,
+  /*logit:        ArrayData<A>,
+  max_logit:    ArrayData<Loss>,
+  factor:       ArrayData<A>,
+  max_factor:   ArrayData<Loss>,*/
   link:     Link,
 }
 
 impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> {
-  pub fn new(x_: Rc<ArrayOp<A>>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
+  //pub fn new(x_: Rc<ArrayOp<A>>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
+  pub fn new<Op>(x_: Rc<Op>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> where Op: 'static + ArrayOp<A> {
     let node = NodeId::new();
     let in_degree = match target_ {
       None      => 1,
       Some(_)   => 2,
     };
+    let x__: Rc<AutodiffOp> = ArrayOp::downgrade(x_.clone());
+    let prob_ = PassOp::new(x__.clone(), ArrayData::new(clk_horizon, prob_alloc.clone()));
+    let loss_ = PassOp::new(x__.clone(), ArrayData::new(clk_horizon, loss_alloc.clone()));
     let x = x_.data();
     let target = target_.as_ref().map(|t_| t_.data());
+    let prob = prob_.data();
+    let loss = loss_.data();
     Rc::new(SoftmaxLoss{
       node_id:  node,
       stack:    OperatorStack::new(node, in_degree),
       x_:       x_,
       target_:  target_,
+      prob_:    prob_,
+      loss_:    loss_,
       x:        x,
       target:   target,
-      loss:     ArrayData::new(clk_horizon, alloc.clone()),
+      prob:     prob,
+      loss:     loss, //ArrayData::new(clk_horizon, alloc.clone()),
+      //logit:    ArrayData::new(1, alloc.clone()),
       link:     link,
     })
+  }
+
+  pub fn prob(&self) -> Rc<PassOp<A>> {
+    self.prob_.clone()
+  }
+
+  pub fn loss(&self) -> Rc<PassOp<Loss>> {
+    self.loss_.clone()
   }
 }
 
