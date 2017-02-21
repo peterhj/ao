@@ -544,12 +544,21 @@ impl<A> AutodiffOp for PassOp<A> {
   }
 }
 
-pub struct InitializeOp<A, InitF> {
+pub struct InitializeOp<A, Init> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
   data: ArrayData<A>,
-  kernel:   InitF,
+  kernel:   Init,
+}
+
+pub fn init_val<R, A, F>(f: F) -> impl Fn(TxnId, NodeId, Rc<RefCell<R>>, ArrayData<A>) where R: Rng, F: Fn(Rc<RefCell<R>>, &mut A) {
+  let init_f = Rc::new(f);
+  move |txn: TxnId, node: NodeId, rng: Rc<RefCell<R>>, data: ArrayData<A>| {
+    if data.val.overwrite(txn, node) {
+      (init_f)(rng, &mut *data.val.get_excl(txn, node));
+    }
+  }
 }
 
 pub fn xavier_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) where R: Rng {
@@ -600,11 +609,11 @@ pub fn kaiming_conv2d_init<R>(/*axes: (usize, usize)*/) -> impl Fn(Rc<RefCell<R>
   }
 }
 
-pub trait InitializeExt<A, F, InitF> {
-  fn initialize(&self, f: F) -> Rc<InitializeOp<A, InitF>>;
+pub trait InitializeExt<A, F, Init> {
+  fn initialize(&self, f: F) -> Rc<InitializeOp<A, Init>>;
 }
 
-impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + ArrayOp<A>, F: Fn(Rc<RefCell<ChaChaRng>>, &mut A) {
+/*impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + ArrayOp<A>, F: Fn(Rc<RefCell<ChaChaRng>>, &mut A) {
   fn initialize(&self, f: F) -> Rc<InitializeOp<A, Rc<F>>> {
     let node = NodeId::new();
     let stack = OperatorStack::new(node, 1);
@@ -616,15 +625,38 @@ impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + ArrayOp
       kernel:   Rc::new(f),
     })
   }
+}*/
+
+//impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + ArrayOp<A>, F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>) {
+impl<Op, A, F> InitializeExt<A, F, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>)>> for Rc<Op> where Op: 'static + ArrayOp<A>, F: 'static + Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>) {
+  fn initialize(&self, f: F) -> Rc<InitializeOp<A, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>)>>> {
+    let node = NodeId::new();
+    let stack = OperatorStack::new(node, 1);
+    let init: Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>)> = Rc::new(f);
+    Rc::new(InitializeOp{
+      node_id:  node,
+      stack:    stack,
+      x_:   self.clone(),
+      data: self.data(),
+      kernel:   init,
+    })
+  }
 }
 
-impl<A, InitF> ArrayOp<A> for InitializeOp<A, InitF> where InitializeOp<A, InitF>: AutodiffOp {
-  fn data(&self) -> ArrayData<A> {
+impl<A, Init> ArrayOp<A> for InitializeOp<A, Init> where InitializeOp<A, Init>: AutodiffOp {
+  default fn data(&self) -> ArrayData<A> {
     self.data.clone()
   }
 }
 
-impl<S, F> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut<Target=[f32]>, F: Fn(Rc<RefCell<ChaChaRng>>, &mut Array1d<f32, S>) {
+impl ArrayOp<f32> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
+  fn data(&self) -> ArrayData<f32> {
+    self.data.clone()
+  }
+}
+
+//impl<F> AutodiffOp for InitializeOp<f32, Rc<F>> where F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>) {
+impl AutodiffOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -649,9 +681,50 @@ impl<S, F> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut
 
   fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
     let node = self._id();
-    if self.data.val.overwrite(txn, node) {
+    /*if self.data.val.overwrite(txn, node) {
       (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
+    }*/
+    (self.kernel)(txn, node, seed_rng, self.data.clone());
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+}
+
+//impl<S, F> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut<Target=[f32]>, F: Fn(Rc<RefCell<ChaChaRng>>, &mut Array1d<f32, S>) {
+//impl<S, F> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut<Target=[f32]>, F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<Array1d<f32, S>>) {
+impl<S> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<Array1d<f32, S>>)>> where S: DerefMut<Target=[f32]> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
     }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    // Do nothing, `data` belongs to `x`.
+  }
+
+  fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
+    let node = self._id();
+    /*if self.data.val.overwrite(txn, node) {
+      (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
+    }*/
+    (self.kernel)(txn, node, seed_rng, self.data.clone());
   }
 
   fn _forward(&self, txn: TxnId) {

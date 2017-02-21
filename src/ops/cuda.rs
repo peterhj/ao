@@ -524,7 +524,8 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   }
 }
 
-impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray1d<f32>) {
+//impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray1d<f32>) {
+impl AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray1d<f32>>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -549,9 +550,10 @@ impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<Re
 
   fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
     let node = self._id();
-    if self.data.val.overwrite(txn, node) {
+    /*if self.data.val.overwrite(txn, node) {
       (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
-    }
+    }*/
+    (self.kernel)(txn, node, seed_rng, self.data.clone());
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -561,7 +563,8 @@ impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<Re
   }
 }
 
-impl<F> AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray2d<f32>) {
+//impl<F> AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray2d<f32>) {
+impl AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray2d<f32>>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -586,9 +589,10 @@ impl<F> AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<F>> where F: Fn(Rc<Re
 
   fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
     let node = self._id();
-    if self.data.val.overwrite(txn, node) {
+    /*if self.data.val.overwrite(txn, node) {
       (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
-    }
+    }*/
+    (self.kernel)(txn, node, seed_rng, self.data.clone());
   }
 
   fn _forward(&self, txn: TxnId) {

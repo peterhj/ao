@@ -49,6 +49,10 @@ impl NodeId {
   }
 }
 
+pub fn txn() -> TxnId {
+  TxnId::new()
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct TxnId(u64);
 
@@ -190,6 +194,10 @@ impl Var {
   pub fn singleton(&self) -> VarSet {
     VarSet::empty().add(self.clone())
   }
+}
+
+pub fn var_set() -> VarSet {
+  VarSet::empty()
 }
 
 #[derive(Clone)]
@@ -655,14 +663,33 @@ impl<A> ArrayVarNew<A> {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
     if vars.contains(&self.var) {
-      buf.curr_txn.set(Some(txn));
+      match buf.curr_txn.get() {
+        Some(prev_txn) => {
+          if prev_txn == txn {
+            // Do nothing.
+          } else {
+            buf.curr_txn.set(Some(txn));
+            buf.reads.borrow_mut().clear();
+            buf.writes.borrow_mut().clear();
+            buf.read_writes.borrow_mut().clear();
+            buf.coarse_rws.borrow_mut().clear();
+          }
+        }
+        None => {
+          buf.curr_txn.set(Some(txn));
+          buf.reads.borrow_mut().clear();
+          buf.writes.borrow_mut().clear();
+          buf.read_writes.borrow_mut().clear();
+          buf.coarse_rws.borrow_mut().clear();
+        }
+      }
     } else {
       buf.curr_txn.set(None);
+      buf.reads.borrow_mut().clear();
+      buf.writes.borrow_mut().clear();
+      buf.read_writes.borrow_mut().clear();
+      buf.coarse_rws.borrow_mut().clear();
     }
-    buf.reads.borrow_mut().clear();
-    buf.writes.borrow_mut().clear();
-    buf.read_writes.borrow_mut().clear();
-    buf.coarse_rws.borrow_mut().clear();
   }
 
   /// Query this variable's availability to be overwritten,
