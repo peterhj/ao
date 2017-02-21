@@ -1705,7 +1705,28 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
   }
 }
 
-impl AutodiffObjective for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel> {
+impl<Op> AutodiffSink<Op> for ArraySink<Op, DeviceMem<f32>> where Op: ArrayOp<DeviceMem<f32>> {
+  fn _set_source(&self, txn: TxnId) {
+    let node = self.node;
+    if self.x.grad.overwrite(txn, node) {
+      self.x.grad.get_excl(txn, node).as_mut()
+        .set_constant(1.0, DeviceStream::implicit().conn());
+    }
+  }
+}
+
+impl<Op> BatchSumExt<Op, DeviceIoBatch<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceIoBatch<f32>> {
+  fn batch_sum(x_: Rc<Op>) -> Rc<BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel>> {
+    let clk_horizon = x_.data().horizon();
+    BatchJoinOp::new(x_.clone(), SumJoinKernel, clk_horizon, {
+      Rc::new(move |_, _| {
+        DeviceMem::zeros(1, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+/*impl AutodiffObjective for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel> {
   fn _set_source(&self, txn: TxnId) {
     let node = self._id();
     // TODO
@@ -1714,7 +1735,7 @@ impl AutodiffObjective for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJo
     }*/
     unimplemented!();
   }
-}
+}*/
 
 impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel> {
   fn _id(&self) -> NodeId {
@@ -1743,35 +1764,41 @@ impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKerne
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
     if self.y.val.overwrite(txn, node) {
-      /*let x_val = self.x.val.get(txn, node);
-      let mut y_val = self.y.val.get_excl(txn, node);
-      *y_val = 0.0;
-      for i in 0 .. batch_sz {
-        *y_val += x_val[i];
-      }*/
       assert!(batch_sz <= 1024);
-      // TODO
-      //self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let conn = DeviceStream::implicit().conn();
+      self.x.val.get(txn, node).as_ref().wait(&conn);
+      self.y.val.get_excl(txn, node).as_ref().wait(&conn);
+      unsafe { arraydiff_cuda_kernel_blockreduce_sum_f32(
+          batch_sz,
+          1,
+          self.x.val.get(txn, node).as_ref().as_ptr(),
+          self.y.val.get_excl(txn, node).as_mut().as_mut_ptr(),
+          conn.raw_stream().ptr,
+      ) };
+      self.x.val.get(txn, node).as_ref().post(&conn);
+      self.y.val.get_excl(txn, node).as_ref().post(&conn);
     }
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
-    if self.x.grad.accumulate(txn, node, |grad| grad.as_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-      /*let mut x_grad = self.x.grad.get_mut(txn, node);
-      let y_grad = self.y.grad.get(txn, node);
-      for i in 0 .. batch_sz {
-        x_grad[i] += *y_grad;
-      }*/
-      // TODO
-      //self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
+    if self.x.grad.accumulate(txn, node, |grad| {
+      grad.set_batch_size(batch_sz);
+      grad.as_mut().set_constant(0.0, DeviceStream::implicit().conn());
+    }) {
+      self.x.grad.get_mut(txn, node).as_mut()
+        .flatten_mut()
+        .add_scalar(
+            self.y.grad.get(txn, node).as_ref(),
+            DeviceStream::implicit().conn(),
+        );
     }
   }
 }
 
 impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
-  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>> {
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> (Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>>, Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
     let clk_horizon = x_.data().horizon();
     SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, clk_horizon, {
       let x = x_.data();
@@ -1829,7 +1856,8 @@ impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Dev
     let node = self._id();
     let x_dim = self.x.val.get(txn, node).dim();
     let batch_sz = self.x.val.get(txn, node).batch_size();
-    if self.prob.val.overwrite(txn, node) {
+    if self.loss.val.overwrite(txn, node) {
+      assert!(self.prob.val.overwrite(txn, node));
       self.prob.val.get_excl(txn, node).set_batch_size(batch_sz);
       if x_dim <= 1024 {
         unsafe { arraydiff_cuda_kernel_block_softmax_fwd_f32(
@@ -1842,8 +1870,6 @@ impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Dev
       } else {
         unimplemented!();
       }
-    }
-    if self.loss.val.overwrite(txn, node) {
       let target = match self.target.as_ref() {
         None    => panic!("SoftmaxLoss with NLL link requires a target"),
         Some(t) => t,

@@ -492,17 +492,17 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
 pub struct PassOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  x_:       Rc<AutodiffOp>,
+  x_:       RefCell<Option<Rc<AutodiffOp>>>,
   data:     ArrayData<A>,
 }
 
 impl<A> PassOp<A> {
-  pub fn new(x_: Rc<AutodiffOp>, data: ArrayData<A>) -> Rc<Self> {
+  pub fn new(x_: Option<Rc<AutodiffOp>>, data: ArrayData<A>) -> Rc<Self> {
     let node = NodeId::new();
     Rc::new(PassOp{
       node_id:  node,
       stack:    OperatorStack::new(node, 1),
-      x_:       x_,
+      x_:       RefCell::new(x_),
       data:     data,
     })
   }
@@ -521,7 +521,8 @@ impl<A> AutodiffOp for PassOp<A> {
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.x_._push(epoch, apply);
+      let x_ = self.x_.borrow();
+      x_.as_ref().unwrap()._push(epoch, apply);
       apply(self);
     }
   }
@@ -529,7 +530,8 @@ impl<A> AutodiffOp for PassOp<A> {
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.x_._pop(epoch, apply);
+      let x_ = self.x_.borrow();
+      x_.as_ref().unwrap()._pop(epoch, apply);
     }
   }
 
@@ -2209,22 +2211,47 @@ impl<S> AutodiffOp for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>>
   }
 }
 
-pub struct BatchJoinOp<A, Scalar, JoinF> {
+pub struct BatchJoinOp<A, B, Join> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<ArrayOp<A>>,
   x:    ArrayData<A>,
-  y:    ArrayData<Scalar>,
-  kernel:   JoinF,
+  y:    ArrayData<B>,
+  kernel:   Join,
 }
 
-pub trait BatchSumExt<A, Scalar> {
-  fn batch_sum(x_: Rc<ArrayOp<A>>) -> Rc<BatchJoinOp<A, Scalar, SumJoinKernel>>;
+impl<A, B, Join> BatchJoinOp<A, B, Join> {
+  pub fn new<Op>(x_: Rc<Op>, kernel: Join, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> B>) -> Rc<BatchJoinOp<A, B, Join>> where Op: 'static + ArrayOp<A> {
+    let node = NodeId::new();
+    let x = x_.data();
+    Rc::new(BatchJoinOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:   x_,
+      x:    x,
+      y:    ArrayData::new(clk_horizon, alloc),
+      kernel:   kernel,
+    })
+  }
 }
 
-impl BatchSumExt<Batch<f32>, f32> for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
+pub trait BatchSumExt<Op, A, B> where Op: ArrayOp<A> {
+  fn batch_sum(x_: Rc<Op>) -> Rc<BatchJoinOp<A, B, SumJoinKernel>>;
+}
+
+pub fn batch_sum<Op, A, B>(x_: Rc<Op>) -> Rc<BatchJoinOp<A, B, SumJoinKernel>> where Rc<Op>: BatchSumExt<Op, A, B>, Op: ArrayOp<A> {
+  <Rc<Op> as BatchSumExt<Op, A, B>>::batch_sum(x_)
+}
+
+/*impl BatchSumExt<Batch<f32>, f32> for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
   fn batch_sum(x_: Rc<ArrayOp<Batch<f32>>>) -> Rc<Self> {
     unimplemented!();
+  }
+}*/
+
+impl<A, B, Join> ArrayOp<B> for BatchJoinOp<A, B, Join> where BatchJoinOp<A, B, Join>: AutodiffOp {
+  fn data(&self) -> ArrayData<B> {
+    self.y.clone()
   }
 }
 
@@ -2350,6 +2377,40 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
   }
 }
 
+pub fn sink<Op, A>(x_: Rc<Op>) -> Rc<ArraySink<Op, A>> where Op: ArrayOp<A> {
+  let x = x_.data();
+  Rc::new(ArraySink{
+    node:   NodeId::new(),
+    x_:     x_,
+    x:      x,
+    _m:     PhantomData,
+  })
+}
+
+pub struct ArraySink<Op, A> where Op: ArrayOp<A> {
+  node: NodeId,
+  x_:   Rc<Op>,
+  x:    ArrayData<A>,
+  _m:   PhantomData<A>,
+}
+
+impl<Op, A> Deref for ArraySink<Op, A> where Op: ArrayOp<A> {
+  type Target = Op;
+
+  fn deref(&self) -> &Op {
+    &*self.x_
+  }
+}
+
+impl<Op> AutodiffSink<Op> for ArraySink<Op, f32> where Op: ArrayOp<f32> {
+  fn _set_source(&self, txn: TxnId) {
+    let node = self.node;
+    if self.x.grad.overwrite(txn, node) {
+      *self.x.grad.get_excl(txn, node) = 1.0;
+    }
+  }
+}
+
 pub struct LstSqLoss<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
@@ -2431,8 +2492,8 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   stack:    OperatorStack,
   x_:       Rc<ArrayOp<A>>,
   target_:  Option<Rc<ArrayOp<Target>>>,
-  prob_:    Rc<PassOp<A>>,
-  loss_:    Rc<PassOp<Loss>>,
+  prob_:    Weak<PassOp<A>>,
+  loss_:    Weak<PassOp<Loss>>,
   x:        ArrayData<A>,
   target:   Option<ArrayData<Target>>,
   prob:     ArrayData<A>,
@@ -2444,43 +2505,46 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   link:     Link,
 }
 
-impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> {
+impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> where SoftmaxLoss<A, Target, Loss, Link>: AutodiffOp, A: 'static, Target: 'static, Loss: 'static, Link: 'static {
   //pub fn new(x_: Rc<ArrayOp<A>>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
-  pub fn new<Op>(x_: Rc<Op>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> where Op: 'static + ArrayOp<A> {
+  pub fn new<Op>(x_: Rc<Op>, target_: Option<Rc<ArrayOp<Target>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) where Op: 'static + ArrayOp<A> {
     let node = NodeId::new();
     let in_degree = match target_ {
       None      => 1,
       Some(_)   => 2,
     };
-    let x__: Rc<AutodiffOp> = ArrayOp::downgrade(x_.clone());
-    let prob_ = PassOp::new(x__.clone(), ArrayData::new(clk_horizon, prob_alloc.clone()));
-    let loss_ = PassOp::new(x__.clone(), ArrayData::new(clk_horizon, loss_alloc.clone()));
+    //let x__: Rc<AutodiffOp> = ArrayOp::downgrade(x_.clone());
     let x = x_.data();
     let target = target_.as_ref().map(|t_| t_.data());
-    let prob = prob_.data();
-    let loss = loss_.data();
-    Rc::new(SoftmaxLoss{
+    let prob = ArrayData::new(clk_horizon, prob_alloc.clone());
+    let loss = ArrayData::new(clk_horizon, loss_alloc.clone());
+    let prob_ = PassOp::new(None, prob.clone());
+    let loss_ = PassOp::new(None, loss.clone());
+    let softmax = Rc::new(SoftmaxLoss{
       node_id:  node,
       stack:    OperatorStack::new(node, in_degree),
       x_:       x_,
       target_:  target_,
-      prob_:    prob_,
-      loss_:    loss_,
+      prob_:    Rc::downgrade(&prob_),
+      loss_:    Rc::downgrade(&loss_),
       x:        x,
       target:   target,
       prob:     prob,
       loss:     loss, //ArrayData::new(clk_horizon, alloc.clone()),
       //logit:    ArrayData::new(1, alloc.clone()),
       link:     link,
-    })
+    });
+    *prob_.x_.borrow_mut() = Some(AutodiffOp::from(softmax.clone()));
+    *loss_.x_.borrow_mut() = Some(AutodiffOp::from(softmax.clone()));
+    (softmax, prob_, loss_)
   }
 
   pub fn prob(&self) -> Rc<PassOp<A>> {
-    self.prob_.clone()
+    Weak::upgrade(&self.prob_).unwrap()
   }
 
   pub fn loss(&self) -> Rc<PassOp<Loss>> {
-    self.loss_.clone()
+    Weak::upgrade(&self.loss_).unwrap()
   }
 }
 
@@ -2489,10 +2553,10 @@ pub trait SoftmaxKLLossExt<A, L> {
 }
 
 pub trait SoftmaxNLLLossExt<Op, A, Target, L> where Op: ArrayOp<A> {
-  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>;
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>, Rc<PassOp<A>>, Rc<PassOp<L>>);
 }
 
-pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> Rc<SoftmaxLoss<A, Target, L, NLLLossLink>> where Rc<Op>: SoftmaxNLLLossExt<Op, A, Target, L>, Op: ArrayOp<A> {
+pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>, Rc<PassOp<A>>, Rc<PassOp<L>>) where Rc<Op>: SoftmaxNLLLossExt<Op, A, Target, L>, Op: ArrayOp<A> {
   <Rc<Op> as SoftmaxNLLLossExt<Op, A, Target, L>>::softmax_nll_loss(x_, target_)
 }
 

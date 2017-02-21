@@ -1,6 +1,6 @@
 pub use super::{
   NodeId, TxnId, EpochNr, Epoch, OperatorStack, Var, VarSet,
-  AutodiffOp, AutodiffObjective,
+  AutodiffOp, AutodiffSink, AutodiffObjective,
   IoBuf, CursorBufExt, CursorBuf,
   ArrayStorage, BatchArrayStorage,
   ArrayOp, ArrayData,

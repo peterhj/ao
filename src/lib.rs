@@ -392,6 +392,54 @@ pub trait AutodiffOp {
   }
 }
 
+pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
+  fn _set_source(&self, txn: TxnId);
+
+  fn gradient(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._set_source(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, false); });
+  }
+
+  fn gauss_newton_vector_product(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._set_source(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |op| { op._r_forward(txn, true); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, true); });
+  }
+
+  fn hessian_vector_product(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._set_source(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |op| { op._r_forward(txn, false); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._r_backward(txn); });
+  }
+
+  fn hessian_diagonal(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._set_source(txn);
+    self._push(epoch, &mut |op| { op._forward(txn); });
+    self._pop(epoch, &mut |_op| {});
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| { op._backward2(txn); });
+  }
+}
+
 pub trait AutodiffObjective: AutodiffOp {
   fn _set_source(&self, txn: TxnId);
 
