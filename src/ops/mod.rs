@@ -515,11 +515,11 @@ impl<A> ArrayOp<A> for PassOp<A> {
 }
 
 impl<A> AutodiffOp for PassOp<A> {
-  fn _id(&self) -> NodeId {
+  default fn _id(&self) -> NodeId {
     self.node_id
   }
 
-  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
       let x_ = self.x_.borrow();
       x_.as_ref().unwrap()._push(epoch, apply);
@@ -527,7 +527,7 @@ impl<A> AutodiffOp for PassOp<A> {
     }
   }
 
-  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
       let x_ = self.x_.borrow();
@@ -535,14 +535,14 @@ impl<A> AutodiffOp for PassOp<A> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
-  fn _forward(&self, txn: TxnId) {
+  default fn _forward(&self, txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  default fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
   }
 }
 
