@@ -7,6 +7,7 @@ extern crate async_execution;
 #[cfg(feature = "cuda")] extern crate cuda_dnn;
 extern crate densearray;
 #[cfg(feature = "cuda")] extern crate devicemem_cuda;
+extern crate fnv;
 extern crate rng;
 
 extern crate libc;
@@ -16,12 +17,13 @@ pub use VarKind::*;
 
 //use arithmetic::*;
 //use densearray::prelude::*;
+use fnv::{FnvHashMap, FnvHashSet};
 
 use rand::{Rng, SeedableRng, thread_rng};
 use rand::chacha::{ChaChaRng};
 use std::any::{Any};
 use std::cell::{Cell, RefCell, Ref, RefMut};
-use std::collections::{HashMap, HashSet};
+//use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc};
 
@@ -202,15 +204,15 @@ pub fn var_set() -> VarSet {
 
 #[derive(Clone)]
 pub struct VarSet {
-  inner:    HashSet<Var>,
-  mask:     HashSet<Var>,
+  inner:    FnvHashSet<Var>,
+  mask:     FnvHashSet<Var>,
 }
 
 impl VarSet {
   pub fn empty() -> VarSet {
     VarSet{
-      inner:    HashSet::new(),
-      mask:     HashSet::new(),
+      inner:    FnvHashSet::default(),
+      mask:     FnvHashSet::default(),
     }
   }
 
@@ -565,11 +567,10 @@ impl BatchArrayStorage<usize> for Vec<f32> {
 pub struct ArrayVarBuf<A> {
   clk:          usize,
   curr_txn:     Cell<Option<TxnId>>,
-  reads:        RefCell<HashSet<NodeId>>,
-  //writers:      RefCell<HashSet<NodeId>>,
-  writes:       RefCell<HashMap<NodeId, Symbol>>,
-  read_writes:  RefCell<HashSet<(NodeId, Symbol)>>,
-  coarse_rws:   RefCell<HashSet<NodeId>>,
+  reads:        RefCell<FnvHashSet<NodeId>>,
+  writes:       RefCell<FnvHashMap<NodeId, Symbol>>,
+  read_writes:  RefCell<FnvHashSet<(NodeId, Symbol)>>,
+  coarse_rws:   RefCell<FnvHashSet<NodeId>>,
   buffer:       RefCell<Option<A>>,
 }
 
@@ -578,11 +579,10 @@ impl<A> ArrayVarBuf<A> {
     ArrayVarBuf{
       clk:          clk,
       curr_txn:     Cell::new(None),
-      reads:        RefCell::new(HashSet::new()),
-      //writers:      RefCell::new(HashSet::new()),
-      writes:       RefCell::new(HashMap::new()),
-      read_writes:  RefCell::new(HashSet::new()),
-      coarse_rws:   RefCell::new(HashSet::new()),
+      reads:        RefCell::new(FnvHashSet::default()),
+      writes:       RefCell::new(FnvHashMap::default()),
+      read_writes:  RefCell::new(FnvHashSet::default()),
+      coarse_rws:   RefCell::new(FnvHashSet::default()),
       buffer:       RefCell::new(None),
     }
   }

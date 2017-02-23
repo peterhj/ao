@@ -1,20 +1,20 @@
-use prelude::*;
 use ffi::*;
 use ops::*;
 
 use async_execution::*;
 use cuda_dnn::v5::*;
 use cuda_dnn::v5::ffi::*;
-use densearray::prelude::*;
+//use densearray::prelude::*;
 use devicemem_cuda::prelude::*;
+use fnv::{FnvHashMap};
 
 use std::any::{Any};
-use std::cell::{Cell, RefCell, Ref, RefMut};
+use std::cell::{Cell, RefCell};
 use std::cmp::{max};
-use std::collections::{HashMap};
-use std::marker::{PhantomData};
-use std::ops::{Deref, DerefMut};
-use std::rc::{Rc, Weak};
+//use std::collections::{HashMap};
+//use std::marker::{PhantomData};
+use std::ops::{Deref};
+use std::rc::{Rc};
 use std::sync::{Arc};
 
 impl<'a, T> CursorIoBufExt<'a> for CursorIoBuf<DeviceMem<T>> where T: 'a + Copy {
@@ -46,16 +46,15 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<Vec<T>>().is_some() {
-          let src_buf = reader.downcast_mut::<Vec<T>>().unwrap();
-          let mut val = self.data.val.get_excl(txn, node);
-          let batch_sz = src_buf.len();
-          val.set_batch_size(batch_sz);
-          val.load(&*src_buf, DeviceStream::implicit().conn());
-        } else {
-          unimplemented!();
-        }
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      if reader.downcast_mut::<Vec<T>>().is_some() {
+        let src_buf = reader.downcast_mut::<Vec<T>>().unwrap();
+        let batch_sz = src_buf.len();
+        val.set_batch_size(batch_sz);
+        val.load(&*src_buf, DeviceStream::implicit().conn());
+      } else {
+        unimplemented!();
       }
     }
   }
@@ -63,9 +62,9 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
       if writer.downcast_mut::<Vec<T>>().is_some() {
         let dst_buf = writer.downcast_mut::<Vec<T>>().unwrap();
-        let mut val = self.data.val.get(txn, node);
         let batch_sz = val.batch_size();
         assert_eq!(batch_sz, dst_buf.len());
         val.as_ref().store_sync(&mut *dst_buf, DeviceStream::implicit().conn());
@@ -145,28 +144,27 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
-          let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
-          let mut val = self.data.val.get_excl(txn, node);
-          let batch_sz = src_bufs.len();
-          val.set_batch_size(batch_sz, &*DeviceStream::implicit());
-          for idx in 0 .. batch_sz {
-            val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
-          }
-          /*let mut tmp = Vec::with_capacity(val.stride());
-          tmp.resize(val.stride(), 0);
-          val[0].as_ref().store_sync(&mut tmp, DeviceStream::implicit().conn());
-          println!("DEBUG: DeviceBatchIoMem input: {:?} readback: {:?}", &src_bufs[0][290 .. 295], &tmp[290 .. 295]);*/
-        /*} else if reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().is_some() {
-          let &mut (ref batch_idx, ref batch_sz, ref src_mem) = reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().unwrap();
-          let mut val = self.data.val.get_mut(txn, node);
-          let val_len = val.stride();
-          val.set_batch_size(*batch_sz, &*DeviceStream::implicit());
-          val.load(*batch_idx, &**src_mem, DeviceStream::implicit().conn());*/
-        } else {
-          unimplemented!();
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
+        let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
+        let batch_sz = src_bufs.len();
+        val.set_batch_size(batch_sz, &*DeviceStream::implicit());
+        for idx in 0 .. batch_sz {
+          val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
         }
+        /*let mut tmp = Vec::with_capacity(val.stride());
+        tmp.resize(val.stride(), 0);
+        val[0].as_ref().store_sync(&mut tmp, DeviceStream::implicit().conn());
+        println!("DEBUG: DeviceBatchIoMem input: {:?} readback: {:?}", &src_bufs[0][290 .. 295], &tmp[290 .. 295]);*/
+      /*} else if reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().is_some() {
+        let &mut (ref batch_idx, ref batch_sz, ref src_mem) = reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().unwrap();
+        let mut val = self.data.val.get_mut(txn, node);
+        let val_len = val.stride();
+        val.set_batch_size(*batch_sz, &*DeviceStream::implicit());
+        val.load(*batch_idx, &**src_mem, DeviceStream::implicit().conn());*/
+      } else {
+        unimplemented!();
       }
     }
   }
@@ -237,29 +235,28 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
+      assert!(self.data.val.overwrite(txn, node));
+      unimplemented!();
+      /*if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
+        let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
+        let mut val = self.data.val.get_excl(txn, node);
+        let batch_sz = src_bufs.len();
+        val.set_batch_size(batch_sz, &*DeviceStream::implicit());
+        for idx in 0 .. batch_sz {
+          val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
+        }
+      } else {
         unimplemented!();
-        /*if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
-          let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
-          let mut val = self.data.val.get_excl(txn, node);
-          let batch_sz = src_bufs.len();
-          val.set_batch_size(batch_sz, &*DeviceStream::implicit());
-          for idx in 0 .. batch_sz {
-            val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
-          }
-        } else {
-          unimplemented!();
-        }*/
-      }
+      }*/
     }
   }
 
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
+      let val = self.data.val.get_excl(txn, node);
       if writer.downcast_mut::<Vec<f32>>().is_some() {
         let dst_buf = writer.downcast_mut::<Vec<f32>>().unwrap();
-        let mut val = self.data.val.get_excl(txn, node);
         let x_dim = val.dim();
         let batch_sz = val.batch_size();
         val.as_view().store_sync(dst_buf.reshape_mut((x_dim, batch_sz)), DeviceStream::implicit().conn());
@@ -326,19 +323,18 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        let mut val = self.data.val.get_excl(txn, node);
-        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-          let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-          val.as_view_mut().load_sync(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
-        } else if reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
-          let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
-          val.as_view_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
-        } else {
-          unimplemented!();
-        }
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+        let val_len = val.dim();
+        let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        val.as_view_mut().load_sync(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
+      } else if reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
+        let val_len = val.dim();
+        let reader = reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
+        val.as_view_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
+      } else {
+        unimplemented!();
       }
     }
   }
@@ -346,7 +342,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      let mut val = self.data.val.get_excl(txn, node);
+      let val = self.data.val.get_excl(txn, node);
       if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let val_len = val.dim();
         let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
@@ -364,7 +360,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      let mut grad = self.data.grad.get(txn, node);
+      let grad = self.data.grad.get(txn, node);
       if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim();
         let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
@@ -434,6 +430,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
       if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let val_len = val.dim().flat_len();
@@ -452,7 +449,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      let mut val = self.data.val.get_excl(txn, node);
+      let val = self.data.val.get_excl(txn, node);
       if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let val_len = val.dim().flat_len();
         let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
@@ -470,7 +467,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      let mut grad = self.data.grad.get(txn, node);
+      let grad = self.data.grad.get(txn, node);
       if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim().flat_len();
         let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
@@ -536,6 +533,7 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
       if reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
         let val_len = val.dim().flat_len();
@@ -550,7 +548,7 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      let mut val = self.data.val.get_excl(txn, node);
+      let val = self.data.val.get_excl(txn, node);
       if writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
         let val_len = val.dim().flat_len();
         let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
@@ -564,7 +562,7 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      let mut grad = self.data.grad.get(txn, node);
+      let grad = self.data.grad.get(txn, node);
       if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim().flat_len();
         let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
@@ -1357,7 +1355,7 @@ pub struct CudnnConvBackendSize {
 pub struct CudnnConvBackend {
   scratch_sz:   Cell<usize>,
   scratch:  RefCell<DeviceMem<u8>>,
-  sizes:    RefCell<HashMap<usize, CudnnConvBackendSize>>,
+  sizes:    RefCell<FnvHashMap<usize, CudnnConvBackendSize>>,
 }
 
 impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray4d<f32>> {
@@ -1367,7 +1365,7 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
     let backend = CudnnConvBackend{
       scratch_sz:   Cell::new(4096),
       scratch:      RefCell::new(DeviceMem::zeros(4096, DeviceStream::implicit().conn())),
-      sizes:        RefCell::new(HashMap::new()),
+      sizes:        RefCell::new(FnvHashMap::default()),
     };
     ConvOp::new(shape, self.clone(), x_.clone(), None, backend, clk_horizon, {
       let x = x_.data();
@@ -1610,7 +1608,7 @@ pub struct CudnnPoolBackendSize {
 }
 
 pub struct CudnnPoolBackend {
-  sizes:    RefCell<HashMap<usize, CudnnPoolBackendSize>>,
+  sizes:    RefCell<FnvHashMap<usize, CudnnPoolBackendSize>>,
   //scratch:  RefCell<DeviceMem<u8>>,
 }
 
