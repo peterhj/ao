@@ -1,7 +1,7 @@
 pub use super::{
   NodeId, TxnId, EpochNr, Epoch, OperatorStack, Var, VarSet,
-  AutodiffOp, AutodiffSink, AutodiffObjective,
-  IoBuf, CursorBufExt, CursorBuf,
+  AutodiffOp, AutodiffSink,
+  SerialIoBuf, ZeroIo, CursorIoBufExt, CursorIoBuf,
   ArrayStorage, BatchArrayStorage,
   ArrayOp, ArrayData,
   txn, var_set,

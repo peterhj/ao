@@ -17,7 +17,7 @@ use std::ops::{Deref, DerefMut};
 use std::rc::{Rc, Weak};
 use std::sync::{Arc};
 
-impl<'a, T> CursorBufExt<'a> for CursorBuf<DeviceMem<T>> where T: 'a + Copy {
+impl<'a, T> CursorIoBufExt<'a> for CursorIoBuf<DeviceMem<T>> where T: 'a + Copy {
   type Ref = DeviceMemRef<'a, T>;
   type Mut = DeviceMemRefMut<'a, T>;
 
@@ -36,11 +36,11 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<DeviceMem<T>> where T: 'a + Copy {
   }
 }
 
-impl<T> ArrayOp<DeviceIoBatch<T>> for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
+/*impl<T> ArrayOp<DeviceIoBatch<T>> for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
   fn data(&self) -> ArrayData<DeviceIoBatch<T>> {
     self.data.clone()
   }
-}
+}*/
 
 impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
@@ -135,11 +135,11 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
   }
 }
 
-impl ArrayOp<DeviceBatchIoMem<u8>> for ArraySrc<DeviceBatchIoMem<u8>> {
+/*impl ArrayOp<DeviceBatchIoMem<u8>> for ArraySrc<DeviceBatchIoMem<u8>> {
   fn data(&self) -> ArrayData<DeviceBatchIoMem<u8>> {
     self.data.clone()
   }
-}
+}*/
 
 impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
@@ -259,7 +259,7 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
     if vars.contains(&self.data.val.var()) {
       if writer.downcast_mut::<Vec<f32>>().is_some() {
         let dst_buf = writer.downcast_mut::<Vec<f32>>().unwrap();
-        let mut val = self.data.val.get(txn, node);
+        let mut val = self.data.val.get_excl(txn, node);
         let x_dim = val.dim();
         let batch_sz = val.batch_size();
         val.as_view().store_sync(dst_buf.reshape_mut((x_dim, batch_sz)), DeviceStream::implicit().conn());
@@ -316,26 +316,25 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
   }
 }
 
-impl ArrayOp<DeviceArray1d<f32>> for ArraySrc<DeviceArray1d<f32>> {
+/*impl ArrayOp<DeviceArray1d<f32>> for ArraySrc<DeviceArray1d<f32>> {
   fn data(&self) -> ArrayData<DeviceArray1d<f32>> {
     self.data.clone()
   }
-}
+}*/
 
 impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
-          let mut val = self.data.val.get_mut(txn, node);
+        let mut val = self.data.val.get_excl(txn, node);
+        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
           let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
           val.as_view_mut().load_sync(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
-        } else if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-          let mut val = self.data.val.get_mut(txn, node);
+        } else if reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
           let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
           val.as_view_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
         } else {
           unimplemented!();
@@ -347,15 +346,14 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
-        let mut val = self.data.val.get(txn, node);
+      let mut val = self.data.val.get_excl(txn, node);
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let val_len = val.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         val.as_view().store_sync(writer.write_buf(val_len).flatten_mut(), DeviceStream::implicit().conn());
-      } else if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-        let mut val = self.data.val.get(txn, node);
+      } else if writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
         let val_len = val.dim();
-        let writer = writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view(), DeviceStream::implicit().conn());
       } else {
         unimplemented!();
@@ -366,15 +364,14 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
-        let mut grad = self.data.grad.get(txn, node);
+      let mut grad = self.data.grad.get(txn, node);
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         grad.as_view().store_sync(writer.write_buf(grad_len).flatten_mut(), DeviceStream::implicit().conn());
-      } else if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-        let mut grad = self.data.grad.get(txn, node);
+      } else if writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
         let grad_len = grad.dim();
-        let writer = writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view(), DeviceStream::implicit().conn());
       } else {
         unimplemented!();
@@ -427,25 +424,27 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   }
 }
 
-impl ArrayOp<DeviceArray2d<f32>> for ArraySrc<DeviceArray2d<f32>> {
+/*impl ArrayOp<DeviceArray2d<f32>> for ArraySrc<DeviceArray2d<f32>> {
   fn data(&self) -> ArrayData<DeviceArray2d<f32>> {
     self.data.clone()
   }
-}
+}*/
 
 impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-          let mut val = self.data.val.get_mut(txn, node);
-          let val_len = val.dim().flat_len();
-          let reader = reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
-          val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
-        } else {
-          unimplemented!();
-        }
+      let mut val = self.data.val.get_excl(txn, node);
+      if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+        let val_len = val.dim().flat_len();
+        let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        val.as_view_mut().flatten_mut().load_sync(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
+      } else if reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
+        let val_len = val.dim().flat_len();
+        let reader = reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
+        val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
+      } else {
+        unimplemented!();
       }
     }
   }
@@ -453,10 +452,14 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-        let mut val = self.data.val.get(txn, node);
+      let mut val = self.data.val.get_excl(txn, node);
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let val_len = val.dim().flat_len();
-        let writer = writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        val.as_view().flatten().store_sync(writer.write_buf(val_len).flatten_mut(), DeviceStream::implicit().conn());
+      } else if writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
+        let val_len = val.dim().flat_len();
+        let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view().flatten(), DeviceStream::implicit().conn());
       } else {
         unimplemented!();
@@ -467,11 +470,11 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
-        let mut grad = self.data.grad.get(txn, node);
+      let mut grad = self.data.grad.get(txn, node);
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim().flat_len();
-        let writer = writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
-        writer.write_buf(grad_len).flatten_mut().copy(grad.as_view().flatten(), DeviceStream::implicit().conn());
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        grad.as_view().flatten().store_sync(writer.write_buf(grad_len).flatten_mut(), DeviceStream::implicit().conn());
       } else {
         unimplemented!();
       }
@@ -523,25 +526,23 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   }
 }
 
-impl ArrayOp<DeviceArray4d<f32>> for ArraySrc<DeviceArray4d<f32>> {
-  fn data(&self) -> ArrayData<DeviceArray4d<f32>> {
-    self.data.clone()
+/*impl ArrayOp<DeviceArray4d<f32>> for ArraySrc<DeviceArray4d<f32>> {
+  fn _data(&self) -> &ArrayData<DeviceArray4d<f32>> {
+    &self.data
   }
-}
+}*/
 
 impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-          let mut val = self.data.val.get_mut(txn, node);
-          let val_len = val.dim().flat_len();
-          let reader = reader.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
-          val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
-        } else {
-          unimplemented!();
-        }
+      let mut val = self.data.val.get_excl(txn, node);
+      if reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
+        let val_len = val.dim().flat_len();
+        let reader = reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
+        val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
+      } else {
+        unimplemented!();
       }
     }
   }
@@ -549,10 +550,10 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().is_some() {
-        let mut val = self.data.val.get(txn, node);
+      let mut val = self.data.val.get_excl(txn, node);
+      if writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().is_some() {
         let val_len = val.dim().flat_len();
-        let writer = writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view().flatten(), DeviceStream::implicit().conn());
       } else {
         unimplemented!();
@@ -563,10 +564,10 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
-        let mut grad = self.data.grad.get(txn, node);
+      let mut grad = self.data.grad.get(txn, node);
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim().flat_len();
-        let writer = writer.downcast_mut::<CursorBuf<DeviceMem<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view().flatten(), DeviceStream::implicit().conn());
       } else {
         unimplemented!();
@@ -851,8 +852,8 @@ impl<Op> CastExt<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>> for Rc<Op> whe
 }
 
 impl ArrayOp<DeviceBatchArray3d<f32>> for TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTransform> {
-  fn data(&self) -> ArrayData<DeviceBatchArray3d<f32>> {
-    self.y.clone()
+  fn _data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+    &self.y
   }
 }
 
@@ -948,8 +949,8 @@ impl<Op> FlattenExt<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>> for Rc<Op>
 }
 
 impl ArrayOp<DeviceBatchArray1d<f32>> for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, FlattenTransform> {
-  fn data(&self) -> ArrayData<DeviceBatchArray1d<f32>> {
-    self.y.clone()
+  fn _data(&self) -> &ArrayData<DeviceBatchArray1d<f32>> {
+    &self.y
   }
 }
 
@@ -1016,8 +1017,8 @@ impl<Op> ReifyExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3
 }
 
 impl ArrayOp<DeviceBatchArray3d<u8>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReifyTransform<(usize, usize, usize)>> {
-  fn data(&self) -> ArrayData<DeviceBatchArray3d<u8>> {
-    self.y.clone()
+  fn _data(&self) -> &ArrayData<DeviceBatchArray3d<u8>> {
+    &self.y
   }
 }
 
@@ -1077,12 +1078,12 @@ impl<Op> MultExt<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceM
 }
 
 impl ArrayOp<DeviceMem<f32>> for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>> {
-  fn data(&self) -> ArrayData<DeviceMem<f32>> {
-    self.y.clone()
+  fn _data(&self) -> &ArrayData<DeviceMem<f32>> {
+    &self.y
   }
 }
 
-impl AutodiffObjective for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>> {
+/*impl AutodiffObjective for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>> {
   fn _set_source(&self, txn: TxnId) {
     let node = self._id();
     if self.y.grad.accumulate(txn, node, |grad| grad.as_mut().set_constant(1.0, DeviceStream::implicit().conn())) {
@@ -1091,7 +1092,7 @@ impl AutodiffObjective for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, Devi
       //assert_eq!(1.0, *self.y.grad.get_mut(txn, node));
     }
   }
-}
+}*/
 
 impl AutodiffOp for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>> {
   fn _id(&self) -> NodeId {
@@ -1177,8 +1178,8 @@ impl<Op> MultExt<DeviceArray2d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d
 }
 
 impl ArrayOp<DeviceBatchArray1d<f32>> for LinearOp<DeviceArray2d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceArray1d<f32>> {
-  fn data(&self) -> ArrayData<DeviceBatchArray1d<f32>> {
-    self.y.clone()
+  fn _data(&self) -> &ArrayData<DeviceBatchArray1d<f32>> {
+    &self.y
   }
 }
 
@@ -1344,7 +1345,7 @@ impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, ScaleElemKernel> 
   }
 }
 
-pub struct CudnnConvKernelSize {
+pub struct CudnnConvBackendSize {
   batch_sz:     usize,
   scratch_req:  usize,
   fwd:      CudnnConvFwdOp,
@@ -1353,22 +1354,22 @@ pub struct CudnnConvKernelSize {
   add:      CudnnAddOp,
 }
 
-pub struct CudnnConvKernel {
+pub struct CudnnConvBackend {
   scratch_sz:   Cell<usize>,
   scratch:  RefCell<DeviceMem<u8>>,
-  sizes:    RefCell<HashMap<usize, CudnnConvKernelSize>>,
+  sizes:    RefCell<HashMap<usize, CudnnConvBackendSize>>,
 }
 
-impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray4d<f32>> {
-  fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel>> {
+impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray4d<f32>> {
+  fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
     let clk_horizon = x_.data().horizon();
     // TODO: the default of 4096 might need to be decreased.
-    let kernel = CudnnConvKernel{
+    let backend = CudnnConvBackend{
       scratch_sz:   Cell::new(4096),
       scratch:      RefCell::new(DeviceMem::zeros(4096, DeviceStream::implicit().conn())),
       sizes:        RefCell::new(HashMap::new()),
     };
-    ConvOp::new(shape, self.clone(), x_.clone(), None, kernel, clk_horizon, {
+    ConvOp::new(shape, self.clone(), x_.clone(), None, backend, clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1378,18 +1379,18 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
     })
   }
 
-  fn conv_add(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>, b_: Rc<ArrayOp<DeviceArray1d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel>> {
+  fn conv_add(&self, shape: ConvShape<(usize, usize)>, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>, b_: Rc<ArrayOp<DeviceArray1d<f32>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
     unimplemented!();
   }
 }
 
-impl ArrayOp<DeviceBatchArray3d<f32>> for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> {
-  fn data(&self) -> ArrayData<DeviceBatchArray3d<f32>> {
-    self.y.clone()
+impl ArrayOp<DeviceBatchArray3d<f32>> for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> {
+  fn _data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+    &self.y
   }
 }
 
-impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvKernel> {
+impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1426,7 +1427,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
       let x_dim = self.x.val.get(txn, node).dim();
       let batch_sz = self.x.val.get(txn, node).batch_size();
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
-      let mut sizes = self.kernel.sizes.borrow_mut();
+      let mut sizes = self.backend.sizes.borrow_mut();
       if !sizes.contains_key(&batch_sz) {
         let mut workspace_size = 0;
         let (in_w, in_h, in_chan) = x_dim;
@@ -1464,7 +1465,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
         );
-        let conv = CudnnConvKernelSize{
+        let conv = CudnnConvBackendSize{
           batch_sz:     batch_sz,
           scratch_req:  workspace_size,
           fwd:      fwd,
@@ -1473,9 +1474,9 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
           add:      add,
         };
         sizes.insert(batch_sz, conv);
-        if workspace_size > self.kernel.scratch_sz.get() {
-          self.kernel.scratch_sz.set(workspace_size);
-          *self.kernel.scratch.borrow_mut() = DeviceMem::zeros(workspace_size, conn);
+        if workspace_size > self.backend.scratch_sz.get() {
+          self.backend.scratch_sz.set(workspace_size);
+          *self.backend.scratch.borrow_mut() = DeviceMem::zeros(workspace_size, conn);
         }
       }
       let conn = DeviceStream::implicit().conn();
@@ -1485,7 +1486,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
       }
       self.x.val.get(txn, node).as_view().wait(&conn);
       self.y.val.get_excl(txn, node).as_view().wait(&conn);
-      self.kernel.scratch.borrow_mut().as_ref().wait(&conn);
+      self.backend.scratch.borrow_mut().as_ref().wait(&conn);
       let conv = sizes.get(&batch_sz).unwrap();
       unsafe { conv.fwd.forward(
           1.0,
@@ -1493,7 +1494,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
           self.a.val.get(txn, node).as_view().as_ptr(),
           0.0,
           self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
-          self.kernel.scratch.borrow_mut().as_mut().as_mut_ptr(),
+          self.backend.scratch.borrow_mut().as_mut().as_mut_ptr(),
           &*conn.cudnn(),
       ) }.unwrap();
       if let Some(ref b) = self.b {
@@ -1511,14 +1512,14 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
       }
       self.x.val.get(txn, node).as_view().post(&conn);
       self.y.val.get_excl(txn, node).as_view().post(&conn);
-      self.kernel.scratch.borrow_mut().as_ref().post(&conn);
+      self.backend.scratch.borrow_mut().as_ref().post(&conn);
     }
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
-    let mut sizes = self.kernel.sizes.borrow_mut();
+    let mut sizes = self.backend.sizes.borrow_mut();
     let conv = sizes.get(&batch_sz).unwrap();
     // TODO: wait-post.
     if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
@@ -1532,7 +1533,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
           self.y.grad.get(txn, node).as_view().as_ptr(),
           1.0,
           self.a.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-          self.kernel.scratch.borrow_mut().as_mut().as_mut_ptr(),
+          self.backend.scratch.borrow_mut().as_mut().as_mut_ptr(),
           &*conn.cudnn(),
       ) }.unwrap();
       self.x.val.get(txn, node).as_view().post(&conn);
@@ -1550,7 +1551,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
           self.y.grad.get(txn, node).as_view().as_ptr(),
           1.0,
           self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-          self.kernel.scratch.borrow_mut().as_mut().as_mut_ptr(),
+          self.backend.scratch.borrow_mut().as_mut().as_mut_ptr(),
           &*conn.cudnn(),
       ) }.unwrap();
       self.a.val.get(txn, node).as_view().post(&conn);
@@ -1603,23 +1604,23 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
   }
 }
 
-pub struct CudnnPoolKernelSize {
+pub struct CudnnPoolBackendSize {
   batch_sz: usize,
   pooling:  CudnnPoolingOp,
 }
 
-pub struct CudnnPoolKernel {
-  sizes:    RefCell<HashMap<usize, CudnnPoolKernelSize>>,
+pub struct CudnnPoolBackend {
+  sizes:    RefCell<HashMap<usize, CudnnPoolBackendSize>>,
   //scratch:  RefCell<DeviceMem<u8>>,
 }
 
-impl<PoolTy, Kernel> ArrayOp<DeviceBatchArray3d<f32>> for PoolOp<PoolTy, (usize, usize), DeviceBatchArray3d<f32>, Kernel> where PoolOp<PoolTy, (usize, usize), DeviceBatchArray3d<f32>, Kernel>: AutodiffOp {
-  fn data(&self) -> ArrayData<DeviceBatchArray3d<f32>> {
-    self.y.clone()
+impl<Kernel, Backend> ArrayOp<DeviceBatchArray3d<f32>> for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Backend> where PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Backend>: AutodiffOp {
+  fn _data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+    &self.y
   }
 }
 
-impl AutodiffOp for PoolOp<AvgPool, (usize, usize), DeviceBatchArray3d<f32>, CudnnPoolKernel> {
+impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, AvgPool, CudnnPoolBackend> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1648,7 +1649,7 @@ impl AutodiffOp for PoolOp<AvgPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
       let x_dim = self.x.val.get(txn, node).dim();
       let batch_sz = self.x.val.get(txn, node).batch_size();
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
-      let mut sizes = self.kernel.sizes.borrow_mut();
+      let mut sizes = self.backend.sizes.borrow_mut();
       if !sizes.contains_key(&batch_sz) {
         let (in_w, in_h, chan) = x_dim;
         let (out_w, out_h, _) = self.shape.conv2d_output_dim(x_dim);
@@ -1669,7 +1670,7 @@ impl AutodiffOp for PoolOp<AvgPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
           Err(e) => panic!("failed to create CudnnPoolingOp: {:?}", e),
           Ok(pooling) => pooling,
         };
-        let pool = CudnnPoolKernelSize{
+        let pool = CudnnPoolBackendSize{
           batch_sz: batch_sz,
           pooling:  pooling,
         };
@@ -1695,7 +1696,7 @@ impl AutodiffOp for PoolOp<AvgPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
       let x_dim = self.x.val.get(txn, node).dim();
       let batch_sz = self.x.val.get(txn, node).batch_size();
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
-      let mut sizes = self.kernel.sizes.borrow_mut();
+      let mut sizes = self.backend.sizes.borrow_mut();
       let conn = DeviceStream::implicit().conn();
       self.x.val.get(txn, node).as_view().wait(&conn);
       self.y.val.get_excl(txn, node).as_view().wait(&conn);
@@ -1738,7 +1739,7 @@ impl AutodiffOp for PoolOp<AvgPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
   }
 }
 
-impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, CudnnPoolKernel> {
+impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, CudnnPoolBackend> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1767,7 +1768,7 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
       let x_dim = self.x.val.get(txn, node).dim();
       let batch_sz = self.x.val.get(txn, node).batch_size();
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
-      let mut sizes = self.kernel.sizes.borrow_mut();
+      let mut sizes = self.backend.sizes.borrow_mut();
       if !sizes.contains_key(&batch_sz) {
         let (in_w, in_h, chan) = x_dim;
         let (out_w, out_h, _) = self.shape.conv2d_output_dim(x_dim);
@@ -1787,7 +1788,7 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
           Err(e) => panic!("failed to create CudnnPoolingOp: {:?}", e),
           Ok(pooling) => pooling,
         };
-        let pool = CudnnPoolKernelSize{
+        let pool = CudnnPoolBackendSize{
           batch_sz: batch_sz,
           pooling:  pooling,
         };
@@ -1813,7 +1814,7 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
       let x_dim = self.x.val.get(txn, node).dim();
       let batch_sz = self.x.val.get(txn, node).batch_size();
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
-      let mut sizes = self.kernel.sizes.borrow_mut();
+      let mut sizes = self.backend.sizes.borrow_mut();
       let conn = DeviceStream::implicit().conn();
       self.x.val.get(txn, node).as_view().wait(&conn);
       self.y.val.get_excl(txn, node).as_view().wait(&conn);
@@ -1857,6 +1858,10 @@ impl AutodiffOp for PoolOp<MaxPool, (usize, usize), DeviceBatchArray3d<f32>, Cud
 }
 
 impl<Op> AutodiffSink<Op> for ArraySink<Op, DeviceMem<f32>> where Op: ArrayOp<DeviceMem<f32>> {
+  fn _op(&self) -> &AutodiffOp {
+    &*self.x_
+  }
+
   fn _set_source(&self, txn: TxnId) {
     let node = self.node;
     if self.x.grad.overwrite(txn, node) {
@@ -1946,9 +1951,10 @@ impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKerne
 }
 
 impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
-  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> (Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>>, Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
+  //fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> (Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>>, Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<DeviceIoBatch<u32>>>) -> (Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
     let clk_horizon = x_.data().horizon();
-    SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, clk_horizon, {
+    let (_, prob, loss) = SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -1961,7 +1967,8 @@ impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Devi
         let batch_cap = x.val.get(txn, node).batch_capacity();
         DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
       })
-    })
+    });
+    (prob, loss)
   }
 }
 

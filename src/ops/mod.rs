@@ -53,8 +53,8 @@ impl<A> ArraySrc<A> {
 }
 
 impl<A> ArrayOp<A> for ArraySrc<A> where ArraySrc<A>: AutodiffOp {
-  default fn data(&self) -> ArrayData<A> {
-    self.data.clone()
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.data
   }
 }
 
@@ -63,10 +63,10 @@ impl AutodiffOp for ArraySrc<f32> {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
-        /*if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        /*if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_excl(txn, node);
           let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
           val.as_view_mut().copy(reader.read_buf(val_len).flatten());
         } else {
           unimplemented!();
@@ -78,10 +78,10 @@ impl AutodiffOp for ArraySrc<f32> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view());
       } else {
         unimplemented!();
@@ -92,10 +92,10 @@ impl AutodiffOp for ArraySrc<f32> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
       } else {
         unimplemented!();
@@ -157,10 +157,10 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
-        /*if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        /*if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_excl(txn, node);
           let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
           val.as_view_mut().copy(reader.read_buf(val_len).flatten());
         } else {
           unimplemented!();
@@ -172,10 +172,10 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view());
       } else {
         unimplemented!();
@@ -186,10 +186,10 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      /*if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
       } else {
         unimplemented!();
@@ -256,10 +256,10 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
           VEC_F32_TYPEID => {}
           _ => {}
         }*/
-        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_excl(txn, node);
           let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
           val.as_view_mut().copy(reader.read_buf(val_len).flatten());
         } else {
           unimplemented!();
@@ -271,10 +271,10 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let mut val = self.data.val.get(txn, node);
         let val_len = val.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view());
       } else {
         unimplemented!();
@@ -285,10 +285,10 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      if writer.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let mut grad = self.data.grad.get(txn, node);
         let grad_len = grad.dim();
-        let writer = writer.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
       } else {
         unimplemented!();
@@ -356,10 +356,10 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_excl(txn, node);
           let val_len = val.dim().flat_len();
-          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
           val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
         } else {
           unimplemented!();
@@ -428,10 +428,10 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorBuf<Vec<f32>>>().is_some() {
+        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
           let mut val = self.data.val.get_excl(txn, node);
           let val_len = val.dim().flat_len();
-          let reader = reader.downcast_mut::<CursorBuf<Vec<f32>>>().unwrap();
+          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
           val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
         } else {
           unimplemented!();
@@ -509,8 +509,8 @@ impl<A> PassOp<A> {
 }
 
 impl<A> ArrayOp<A> for PassOp<A> {
-  fn data(&self) -> ArrayData<A> {
-    self.data.clone()
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.data
   }
 }
 
@@ -646,16 +646,16 @@ impl<Op, A, F> InitializeExt<A, F, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, 
 }
 
 impl<A, Init> ArrayOp<A> for InitializeOp<A, Init> where InitializeOp<A, Init>: AutodiffOp {
-  default fn data(&self) -> ArrayData<A> {
-    self.data.clone()
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.data
   }
 }
 
-impl ArrayOp<f32> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
-  fn data(&self) -> ArrayData<f32> {
-    self.data.clone()
+/*impl ArrayOp<f32> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
+  fn _data(&self) -> &ArrayData<A> {
+    &self.data
   }
-}
+}*/
 
 //impl<F> AutodiffOp for InitializeOp<f32, Rc<F>> where F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>) {
 impl AutodiffOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
@@ -797,8 +797,8 @@ impl<A, MapF> MapOp<A, MapF> {
 }
 
 impl<A, MapF> ArrayOp<A> for MapOp<A, MapF> where MapOp<A, MapF>: AutodiffOp {
-  fn data(&self) -> ArrayData<A> {
-    self.y.clone()
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.y
   }
 }
 
@@ -1084,8 +1084,8 @@ pub struct JoinOp<A, JoinF> {
 }
 
 impl<A, JoinF> ArrayOp<A> for JoinOp<A, JoinF> where JoinOp<A, JoinF>: AutodiffOp {
-  fn data(&self) -> ArrayData<A> {
-    self.y.clone()
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.y
   }
 }
 
@@ -1259,6 +1259,12 @@ impl<A, V, W, B> LinearOp<A, V, W, B> {
   }
 }
 
+impl<A, V, W, B> ArrayOp<W> for LinearOp<A, V, W, B> where LinearOp<A, V, W, B>: AutodiffOp {
+  default fn _data(&self) -> &ArrayData<W> {
+    &self.y
+  }
+}
+
 impl<Op, S> MultExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> where Op: 'static + ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
   fn mult(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32>> {
     let clk_horizon = x_.data().horizon();
@@ -1271,13 +1277,7 @@ impl<Op, S> MultExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> where
   }
 }
 
-impl<S> ArrayOp<f32> for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> where S: DerefMut<Target=[f32]> {
-  fn data(&self) -> ArrayData<f32> {
-    self.y.clone()
-  }
-}
-
-impl<S> AutodiffObjective for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> where S: DerefMut<Target=[f32]> {
+/*impl<S> AutodiffObjective for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> where S: DerefMut<Target=[f32]> {
   fn _set_source(&self, txn: TxnId) {
     let node = self._id();
     if self.y.grad.accumulate(txn, node, |g| *g = 1.0) {
@@ -1285,7 +1285,7 @@ impl<S> AutodiffObjective for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f3
       assert_eq!(1.0, *self.y.grad.get_mut(txn, node));
     }
   }
-}
+}*/
 
 impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
@@ -1374,11 +1374,11 @@ impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, 
   }
 }
 
-impl<S> ArrayOp<Array1d<f32, S>> for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn data(&self) -> ArrayData<Array1d<f32, S>> {
-    self.y.clone()
+/*impl<S> ArrayOp<Array1d<f32, S>> for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
+  fn _data(&self) -> &ArrayData<A> {
+    &self.data
   }
-}
+}*/
 
 impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
@@ -1542,11 +1542,11 @@ impl<S> MultExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Arr
   }
 }
 
-impl<S> ArrayOp<BatchArray1d<f32, S>> for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn data(&self) -> ArrayData<BatchArray1d<f32, S>> {
-    self.y.clone()
+/*impl<S> ArrayOp<BatchArray1d<f32, S>> for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
+  fn _data(&self) -> &ArrayData<A> {
+    &self.data
   }
-}
+}*/
 
 impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
@@ -1705,8 +1705,8 @@ pub trait ElemLinearExt<A, V> {
 }
 
 impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<A, V, Kernel>: AutodiffOp {
-  fn data(&self) -> ArrayData<V> {
-    self.y.clone()
+  default fn _data(&self) -> &ArrayData<V> {
+    &self.y
   }
 }
 
@@ -1856,12 +1856,12 @@ impl ConvShape<(usize, usize)> {
   }
 }
 
-pub trait ConvExt<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
-  fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
-  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V, Kernel>>;
+pub trait ConvExt<Idx, A, B, V, Backend> where Idx: ArrayIndex {
+  fn conv(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<ConvOp<Idx, A, B, V, Backend>>;
+  fn conv_add(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<B>>) -> Rc<ConvOp<Idx, A, B, V, Backend>>;
 }
 
-pub struct ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
+pub struct ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex {
   node_id:  NodeId,
   stack:    OperatorStack,
   shape:    ConvShape<Idx>,
@@ -1872,11 +1872,11 @@ pub struct ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
   x:    ArrayData<V>,
   b:    Option<ArrayData<B>>,
   y:    ArrayData<V>,
-  kernel:   Kernel,
+  backend:  Backend,
 }
 
-impl<Idx, A, B, V, Kernel> ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
-  pub fn new(shape: ConvShape<Idx>, a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, b_: Option<Rc<ArrayOp<B>>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+impl<Idx, A, B, V, Backend> ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex {
+  pub fn new(shape: ConvShape<Idx>, a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, b_: Option<Rc<ArrayOp<B>>>, backend: Backend, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let in_degree = match b_ {
       None    => 2,
@@ -1897,7 +1897,7 @@ impl<Idx, A, B, V, Kernel> ConvOp<Idx, A, B, V, Kernel> where Idx: ArrayIndex {
       b:    b,
       y:    ArrayData::new(clk_horizon, alloc.clone()),
       //tmp:  ArrayData::new(1, alloc),
-      kernel:   kernel,
+      backend:  backend,
     })
   }
 }
@@ -1957,24 +1957,24 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
 pub struct AvgPool;
 pub struct MaxPool;
 
-pub trait PoolExt<Idx, V, Kernel> where Idx: ArrayIndex {
-  fn avg_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<AvgPool, Idx, V, Kernel>>;
-  fn max_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<MaxPool, Idx, V, Kernel>>;
+pub trait PoolExt<Idx, V, Backend> where Idx: ArrayIndex {
+  fn avg_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<Idx, V, AvgPool, Backend>>;
+  fn max_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<Idx, V, MaxPool, Backend>>;
 }
 
-pub struct PoolOp<PoolTy, Idx, V, Kernel> where Idx: ArrayIndex {
+pub struct PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
   node_id:  NodeId,
   stack:    OperatorStack,
   shape:    ConvShape<Idx>,
   x_:   Rc<ArrayOp<V>>,
   x:    ArrayData<V>,
   y:    ArrayData<V>,
-  pool_ty:  PoolTy,
   kernel:   Kernel,
+  backend:  Backend,
 }
 
-impl<PoolTy, Idx, V, Kernel> PoolOp<PoolTy, Idx, V, Kernel> where Idx: ArrayIndex {
-  pub fn new(pool_ty: PoolTy, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
+  pub fn new(shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, kernel: Kernel, backend: Backend, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(PoolOp{
@@ -1985,8 +1985,8 @@ impl<PoolTy, Idx, V, Kernel> PoolOp<PoolTy, Idx, V, Kernel> where Idx: ArrayInde
       x:    x,
       y:    ArrayData::new(clk_horizon, alloc.clone()),
       //tmp:  ArrayData::new(1, alloc),
-      pool_ty:  pool_ty,
       kernel:   kernel,
+      backend:  backend,
     })
   }
 }
@@ -2250,19 +2250,19 @@ pub fn batch_sum<Op, A, B>(x_: Rc<Op>) -> Rc<BatchJoinOp<A, B, SumJoinKernel>> w
 }*/
 
 impl<A, B, Join> ArrayOp<B> for BatchJoinOp<A, B, Join> where BatchJoinOp<A, B, Join>: AutodiffOp {
-  fn data(&self) -> ArrayData<B> {
-    self.y.clone()
+  default fn _data(&self) -> &ArrayData<B> {
+    &self.y
   }
 }
 
-impl AutodiffObjective for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
+/*impl AutodiffObjective for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
   fn _set_source(&self, txn: TxnId) {
     let node = self._id();
     if !self.y.grad.accumulate(txn, node, |g| *g = 1.0) {
       assert_eq!(1.0, *self.y.grad.get_mut(txn, node));
     }
   }
-}
+}*/
 
 impl AutodiffOp for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
   fn _id(&self) -> NodeId {
@@ -2403,6 +2403,10 @@ impl<Op, A> Deref for ArraySink<Op, A> where Op: ArrayOp<A> {
 }
 
 impl<Op> AutodiffSink<Op> for ArraySink<Op, f32> where Op: ArrayOp<f32> {
+  fn _op(&self) -> &AutodiffOp {
+    &*self.x_
+  }
+
   fn _set_source(&self, txn: TxnId) {
     let node = self.node;
     if self.x.grad.overwrite(txn, node) {
@@ -2539,13 +2543,13 @@ impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> where SoftmaxLoss
     (softmax, prob_, loss_)
   }
 
-  pub fn prob(&self) -> Rc<PassOp<A>> {
+  /*pub fn prob(&self) -> Rc<PassOp<A>> {
     Weak::upgrade(&self.prob_).unwrap()
   }
 
   pub fn loss(&self) -> Rc<PassOp<Loss>> {
     Weak::upgrade(&self.loss_).unwrap()
-  }
+  }*/
 }
 
 pub trait SoftmaxKLLossExt<A, L> {
@@ -2553,10 +2557,12 @@ pub trait SoftmaxKLLossExt<A, L> {
 }
 
 pub trait SoftmaxNLLLossExt<Op, A, Target, L> where Op: ArrayOp<A> {
-  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>, Rc<PassOp<A>>, Rc<PassOp<L>>);
+  //fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>, Rc<PassOp<A>>, Rc<PassOp<L>>);
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<PassOp<A>>, Rc<PassOp<L>>);
 }
 
-pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>, Rc<PassOp<A>>, Rc<PassOp<L>>) where Rc<Op>: SoftmaxNLLLossExt<Op, A, Target, L>, Op: ArrayOp<A> {
+//pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<SoftmaxLoss<A, Target, L, NLLLossLink>>, Rc<PassOp<A>>, Rc<PassOp<L>>) where Rc<Op>: SoftmaxNLLLossExt<Op, A, Target, L>, Op: ArrayOp<A> {
+pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target>>) -> (Rc<PassOp<A>>, Rc<PassOp<L>>) where Rc<Op>: SoftmaxNLLLossExt<Op, A, Target, L>, Op: ArrayOp<A> {
   <Rc<Op> as SoftmaxNLLLossExt<Op, A, Target, L>>::softmax_nll_loss(x_, target_)
 }
 

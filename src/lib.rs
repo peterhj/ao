@@ -259,13 +259,11 @@ impl VarSet {
 }
 
 pub trait AutodiffOp {
-  fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op.clone() }
-
   fn _id(&self) -> NodeId;
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
 
-  fn _data_size(&self, txn: TxnId, vars: &mut VarSet) -> usize { 0 }
+  fn _serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize { 0 }
   fn _load(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {}
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {}
   fn _load_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {}
@@ -286,17 +284,21 @@ pub trait AutodiffOp {
   fn _reset_clock(&self) {}
   fn _set_clock(&self, clk: usize) { unimplemented!(); }
 
-  fn data_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
+  fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized {
+    op.clone()
+  }
+
+  fn serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
     let epoch = Epoch::new(self._id());
     let mut size = 0;
     vars.unmask_all();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { size += op._data_size(txn, vars); });
+    self._pop(epoch, &mut |op| { size += op._serial_size(txn, vars); });
     vars.unmask_all();
     size
   }
 
-  fn load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut IoBuf) {
+  fn load_serial_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     reader.reset();
@@ -305,7 +307,7 @@ pub trait AutodiffOp {
     vars.unmask_all();
   }
 
-  fn load_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut IoBuf) {
+  fn load_serial_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     reader.reset();
@@ -314,7 +316,7 @@ pub trait AutodiffOp {
     vars.unmask_all();
   }
 
-  fn store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut IoBuf) {
+  fn store_serial_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
@@ -323,7 +325,7 @@ pub trait AutodiffOp {
     vars.unmask_all();
   }
 
-  fn store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut IoBuf) {
+  fn store_serial_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
@@ -332,7 +334,7 @@ pub trait AutodiffOp {
     vars.unmask_all();
   }
 
-  fn store_r_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut IoBuf) {
+  fn store_serial_r_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
@@ -341,7 +343,7 @@ pub trait AutodiffOp {
     vars.unmask_all();
   }
 
-  fn store_grad2(&self, txn: TxnId, vars: &mut VarSet, writer: &mut IoBuf) {
+  fn store_serial_grad2(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
@@ -393,6 +395,7 @@ pub trait AutodiffOp {
 }
 
 pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
+  fn _op(&self) -> &AutodiffOp;
   fn _set_source(&self, txn: TxnId);
 
   fn gradient(&self, txn: TxnId) {
@@ -440,94 +443,39 @@ pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
   }
 }
 
-pub trait AutodiffObjective: AutodiffOp {
-  fn _set_source(&self, txn: TxnId);
+pub trait ArrayOp<A>: AutodiffOp {
+  fn _data(&self) -> &ArrayData<A>;
 
-  fn gradient(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._set_source(txn);
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward(txn, /*vars,*/ false); });
+  fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized {
+    op.clone()
   }
 
-  fn gauss_newton_vector_product(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._set_source(txn);
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |op| { op._r_forward(txn, /*vars,*/ true); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward(txn, /*vars,*/ true); });
+  fn data(&self) -> ArrayData<A> {
+    self._data().clone()
   }
 
-  fn hessian_vector_product(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._set_source(txn);
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |op| { op._r_forward(txn, /*vars,*/ false); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward(txn, /*vars,*/ false); });
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._r_backward(txn, /*vars*/); });
-  }
-
-  fn hessian_diagonal(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._set_source(txn);
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward(txn, false); });
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward2(txn); });
+  fn vars(&self) -> VarSet {
+    self._data().vars()
   }
 }
 
-pub fn init_master_rng() -> (Rc<RefCell<ChaChaRng>>, Vec<u32>) {
-  let mut seed = Vec::with_capacity(8);
-  for _ in 0 .. 8 {
-    seed.push(thread_rng().next_u32());
-  }
-  assert_eq!(8, seed.len());
-  let rng = Rc::new(RefCell::new(ChaChaRng::from_seed(&seed)));
-  (rng, seed)
-}
-
-pub fn init_seed_rng(master_rng: &mut ChaChaRng) -> Rc<RefCell<ChaChaRng>> {
-  let mut seed = Vec::with_capacity(8);
-  for _ in 0 .. 8 {
-    seed.push(master_rng.next_u32());
-  }
-  assert_eq!(8, seed.len());
-  let rng = Rc::new(RefCell::new(ChaChaRng::from_seed(&seed)));
-  rng
-}
-
-pub fn init_spawn_rng(master_rng: &mut ChaChaRng) -> ChaChaRng {
-  let mut seed = Vec::with_capacity(8);
-  for _ in 0 .. 8 {
-    seed.push(master_rng.next_u32());
-  }
-  assert_eq!(8, seed.len());
-  ChaChaRng::from_seed(&seed)
-}
-
-pub trait IoBuf: Any {
+pub trait SerialIoBuf: Any {
   fn reset(&mut self);
   fn as_any(&mut self) -> &mut Any;
 }
 
-pub struct CursorBuf<A> {
-  buffer:   A,
-  offset:   usize,
+pub struct ZeroIo;
+
+impl SerialIoBuf for ZeroIo {
+  fn reset(&mut self) {
+  }
+
+  fn as_any(&mut self) -> &mut Any {
+    self
+  }
 }
 
-pub trait CursorBufExt<'a> {
+pub trait CursorIoBufExt<'a> {
   type Ref: ?Sized;
   type Mut: ?Sized;
 
@@ -535,16 +483,21 @@ pub trait CursorBufExt<'a> {
   fn write_buf(&'a mut self, length: usize) -> Self::Mut;
 }
 
-impl<A> CursorBuf<A> {
+pub struct CursorIoBuf<A> {
+  buffer:   A,
+  offset:   usize,
+}
+
+impl<A> CursorIoBuf<A> {
   pub fn new(buffer: A) -> Self {
-    CursorBuf{
+    CursorIoBuf{
       buffer:   buffer,
       offset:   0,
     }
   }
 }
 
-impl<A> Deref for CursorBuf<A> {
+impl<A> Deref for CursorIoBuf<A> {
   type Target = A;
 
   fn deref(&self) -> &A {
@@ -552,13 +505,13 @@ impl<A> Deref for CursorBuf<A> {
   }
 }
 
-impl<A> DerefMut for CursorBuf<A> {
+impl<A> DerefMut for CursorIoBuf<A> {
   fn deref_mut(&mut self) -> &mut A {
     &mut self.buffer
   }
 }
 
-impl<A> IoBuf for CursorBuf<A> where A: 'static {
+impl<A> SerialIoBuf for CursorIoBuf<A> where A: 'static {
   fn reset(&mut self) {
     self.offset = 0;
   }
@@ -568,7 +521,7 @@ impl<A> IoBuf for CursorBuf<A> where A: 'static {
   }
 }
 
-impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
+impl<'a, T> CursorIoBufExt<'a> for CursorIoBuf<Vec<T>> where T: 'a {
   type Ref = &'a [T];
   type Mut = &'a mut [T];
 
@@ -584,15 +537,6 @@ impl<'a, T> CursorBufExt<'a> for CursorBuf<Vec<T>> where T: 'a {
     buf
   }
 }
-
-pub trait ArrayOp<A>: AutodiffOp {
-  fn downgrade(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op.clone() }
-  fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op.clone() }
-  fn data(&self) -> ArrayData<A>;
-}
-
-/*pub trait ArrayObjective<A>: ArrayOp<A> + AutodiffObjective {
-}*/
 
 pub trait ArrayStorage<Idx> {
   fn alloc(dim: Idx) -> Self where Self: Sized;
@@ -619,32 +563,32 @@ impl BatchArrayStorage<usize> for Vec<f32> {
 }
 
 pub struct ArrayVarBuf<A> {
-  clk:      usize,
-  curr_txn: Cell<Option<TxnId>>,
-  reads:  RefCell<HashSet<NodeId>>,
-  writers:  RefCell<HashSet<NodeId>>,
+  clk:          usize,
+  curr_txn:     Cell<Option<TxnId>>,
+  reads:        RefCell<HashSet<NodeId>>,
+  //writers:      RefCell<HashSet<NodeId>>,
   writes:       RefCell<HashMap<NodeId, Symbol>>,
   read_writes:  RefCell<HashSet<(NodeId, Symbol)>>,
   coarse_rws:   RefCell<HashSet<NodeId>>,
-  buffer:   RefCell<Option<A>>,
+  buffer:       RefCell<Option<A>>,
 }
 
 impl<A> ArrayVarBuf<A> {
   pub fn new(clk: usize) -> Self {
     ArrayVarBuf{
-      clk:      clk,
-      curr_txn: Cell::new(None),
-      reads:  RefCell::new(HashSet::new()),
-      writers:  RefCell::new(HashSet::new()),
+      clk:          clk,
+      curr_txn:     Cell::new(None),
+      reads:        RefCell::new(HashSet::new()),
+      //writers:      RefCell::new(HashSet::new()),
       writes:       RefCell::new(HashMap::new()),
       read_writes:  RefCell::new(HashSet::new()),
       coarse_rws:   RefCell::new(HashSet::new()),
-      buffer:   RefCell::new(None),
+      buffer:       RefCell::new(None),
     }
   }
 }
 
-pub struct ArrayVarNew<A> {
+pub struct ArrayVar<A> {
   symbol:   Symbol,
   var:      Var,
   kind:     VarKind,
@@ -653,13 +597,13 @@ pub struct ArrayVarNew<A> {
   clk_bufs: Vec<Rc<ArrayVarBuf<A>>>,
 }
 
-impl<A> ArrayVarNew<A> {
+impl<A> ArrayVar<A> {
   pub fn new(symbol: Symbol, kind: VarKind, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let mut clk_bufs = Vec::with_capacity(clk_horizon);
     for clk in 0 .. clk_horizon {
       clk_bufs.push(Rc::new(ArrayVarBuf::new(clk)));
     }
-    ArrayVarNew{
+    ArrayVar{
       symbol:   symbol,
       var:      Var::new(kind),
       kind:     kind,
@@ -673,7 +617,7 @@ impl<A> ArrayVarNew<A> {
   /// Each instance of the same `ArrayVar` should have a unique symbol in order
   /// to distinguish different operands.
   pub fn dup(&self, new_symbol: Symbol) -> Self {
-    ArrayVarNew{
+    ArrayVar{
       symbol:   new_symbol,
       var:      self.var.clone(),
       kind:     self.kind,
@@ -942,11 +886,11 @@ pub struct ArrayData<A> {
   symbol:       Symbol,
   clk_horizon:  usize,
   alloc:        Rc<Fn(TxnId, NodeId) -> A>,
-  pub val:      ArrayVarNew<A>,
-  pub grad:     ArrayVarNew<A>,
-  pub r_val:    ArrayVarNew<A>,
-  pub r_grad:   ArrayVarNew<A>,
-  pub grad2:    ArrayVarNew<A>,
+  pub val:      ArrayVar<A>,
+  pub grad:     ArrayVar<A>,
+  pub r_val:    ArrayVar<A>,
+  pub r_grad:   ArrayVar<A>,
+  pub grad2:    ArrayVar<A>,
 }
 
 impl<A> Clone for ArrayData<A> {
@@ -972,11 +916,11 @@ impl<A> ArrayData<A> {
       symbol:       symbol,
       clk_horizon:  clk_horizon,
       alloc:        alloc.clone(),
-      val:      ArrayVarNew::new(symbol, Val, clk_horizon, alloc.clone()),
-      grad:     ArrayVarNew::new(symbol, Grad, clk_horizon, alloc.clone()),
-      r_val:    ArrayVarNew::new(symbol, RVal, clk_horizon, alloc.clone()),
-      r_grad:   ArrayVarNew::new(symbol, RGrad, clk_horizon, alloc.clone()),
-      grad2:    ArrayVarNew::new(symbol, Grad2, clk_horizon, alloc.clone()),
+      val:      ArrayVar::new(symbol, Val, clk_horizon, alloc.clone()),
+      grad:     ArrayVar::new(symbol, Grad, clk_horizon, alloc.clone()),
+      r_val:    ArrayVar::new(symbol, RVal, clk_horizon, alloc.clone()),
+      r_grad:   ArrayVar::new(symbol, RGrad, clk_horizon, alloc.clone()),
+      grad2:    ArrayVar::new(symbol, Grad2, clk_horizon, alloc.clone()),
     }
   }
 
@@ -1016,4 +960,33 @@ impl<A> ArrayData<A> {
     self.r_grad.rollover(txn, vars);
     self.grad2.rollover(txn, vars);
   }
+}
+
+pub fn init_master_rng() -> (Rc<RefCell<ChaChaRng>>, Vec<u32>) {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(thread_rng().next_u32());
+  }
+  assert_eq!(8, seed.len());
+  let rng = Rc::new(RefCell::new(ChaChaRng::from_seed(&seed)));
+  (rng, seed)
+}
+
+pub fn init_seed_rng(master_rng: &mut ChaChaRng) -> Rc<RefCell<ChaChaRng>> {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(master_rng.next_u32());
+  }
+  assert_eq!(8, seed.len());
+  let rng = Rc::new(RefCell::new(ChaChaRng::from_seed(&seed)));
+  rng
+}
+
+pub fn init_spawn_rng(master_rng: &mut ChaChaRng) -> ChaChaRng {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(master_rng.next_u32());
+  }
+  assert_eq!(8, seed.len());
+  ChaChaRng::from_seed(&seed)
 }
