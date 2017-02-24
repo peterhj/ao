@@ -34,6 +34,7 @@ pub mod prelude;
 thread_local!(static NODE_ID_COUNTER: Cell<u64> = Cell::new(0));
 thread_local!(static TXN_ID_COUNTER:  Cell<u64> = Cell::new(0));
 thread_local!(static EPOCH_COUNTER:   Cell<u64> = Cell::new(0));
+thread_local!(static CLK_DOM_COUNTER: Cell<u64> = Cell::new(0));
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(u64);
@@ -83,6 +84,22 @@ impl EpochNr {
       assert_eq!(next_count, prev_count + 1);
       assert!(next_count != 0);
       EpochNr(next_count)
+    })
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ClockDomain(u64);
+
+impl ClockDomain {
+  pub fn new() -> ClockDomain {
+    CLK_DOM_COUNTER.with(|counter| {
+      let prev_count = counter.get();
+      counter.set(prev_count + 1);
+      let next_count = counter.get();
+      assert_eq!(next_count, prev_count + 1);
+      assert!(next_count != 0);
+      ClockDomain(next_count)
     })
   }
 }
