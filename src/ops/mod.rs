@@ -20,6 +20,92 @@ use std::rc::{Rc, Weak};
 
 //const VEC_F32_TYPEID: TypeId = TypeId::of::<Vec<f32>>();
 
+pub trait LoadFromMemory {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool;
+}
+
+pub trait StoreToMemory {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> bool;
+}
+
+impl LoadFromMemory for Array1d<f32> {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+    if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+      let buf_len = dst.dim();
+      let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+      dst.as_view_mut().copy(reader.read_buf(buf_len).flatten());
+    } else {
+      return false;
+    }
+    true
+  }
+}
+
+impl StoreToMemory for Array1d<f32> {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+    if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+      let buf_len = src.dim();
+      let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+      writer.write_buf(buf_len).flatten_mut().copy(src.as_view());
+    } else {
+      return false;
+    }
+    true
+  }
+}
+
+impl LoadFromMemory for Array2d<f32> {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+    if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+      let buf_len = dst.dim().flat_len();
+      let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+      dst.as_view_mut().flatten_mut().copy(reader.read_buf(buf_len).flatten());
+    } else {
+      return false;
+    }
+    true
+  }
+}
+
+impl StoreToMemory for Array2d<f32> {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+    if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+      let buf_len = src.dim().flat_len();
+      let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+      writer.write_buf(buf_len).flatten_mut().copy(src.as_view().flatten());
+    } else {
+      return false;
+    }
+    true
+  }
+}
+
+impl LoadFromMemory for Array4d<f32> {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+    if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+      let buf_len = dst.dim().flat_len();
+      let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+      dst.as_view_mut().flatten_mut().copy(reader.read_buf(buf_len).flatten());
+    } else {
+      return false;
+    }
+    true
+  }
+}
+
+impl StoreToMemory for Array4d<f32> {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+    if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+      let buf_len = src.dim().flat_len();
+      let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+      writer.write_buf(buf_len).flatten_mut().copy(src.as_view().flatten());
+    } else {
+      return false;
+    }
+    true
+  }
+}
+
 pub fn src<A, F>(cons: F) -> Rc<ArraySrc<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
   ArraySrc::new(1, false, Rc::new(cons))
 }
@@ -250,48 +336,46 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        /*match reader.get_type_id() {
-          VEC_F32_TYPEID => {}
-          _ => {}
-        }*/
-        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-          let mut val = self.data.val.get_excl(txn, node);
-          let val_len = val.dim();
-          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-          val.as_view_mut().copy(reader.read_buf(val_len).flatten());
-        } else {
-          unimplemented!();
-        }
-      }
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      /*if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+        let val_len = val.dim();
+        let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        val.as_view_mut().copy(reader.read_buf(val_len).flatten());
+      } else {
+        unimplemented!();
+      }*/
+      assert!(LoadFromMemory::load_from_memory(&mut *val, reader));
     }
   }
 
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-        let mut val = self.data.val.get(txn, node);
+      let mut val = self.data.val.get(txn, node);
+      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let val_len = val.dim();
         let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view());
       } else {
         unimplemented!();
-      }
+      }*/
+      assert!(StoreToMemory::store_to_memory(&*val, writer));
     }
   }
 
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-        let mut grad = self.data.grad.get(txn, node);
+      let mut grad = self.data.grad.get(txn, node);
+      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
         let grad_len = grad.dim();
         let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
       } else {
         unimplemented!();
-      }
+      }*/
+      assert!(StoreToMemory::store_to_memory(&*grad, writer));
     }
   }
 
