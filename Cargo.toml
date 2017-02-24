@@ -19,12 +19,11 @@ walkdir = "*"
 [dependencies]
 libc = "*"
 rand = "*"
-arithmetic = { path = "../libarithmetic" }
+#arithmetic = { path = "../libarithmetic" }
 async_execution = { path = "../async_execution" }
 cuda = { version = "*", optional = true }
 cuda_dnn = { version = "*", requires = "cuda" }
 densearray = "*"
 devicemem_cuda = { path = "../libdevicemem_cuda" }
 fnv = "*"
-operator = { path = "../liboperator" }
 rng = "*"
