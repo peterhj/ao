@@ -1,6 +1,9 @@
 # arraydiff
 
 `arraydiff` is an automatic differentiation library for array-valued operators.
+The current implementation consists only of an in-memory representation of the
+operator node graph; graph compilation is a non-goal, although graph transforms
+(e.g. peephole optimizations) may be possible.
 
 The worldview of `arraydiff` summarized in a few points:
 - The only operations that matter are evaluation and various forms of
