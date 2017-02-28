@@ -1335,10 +1335,10 @@ impl AutodiffOp for LinearOp<DeviceArray2d<f32>, DeviceBatchArray1d<f32>, Device
   }
 }
 
-impl<Op> ScalarLinearExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + ArrayOp<f32> {
-  fn scale(&self, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, ScaleElemKernel>> {
+impl<Op> ElemMultExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + ArrayOp<f32> {
+  fn elem_mult(&self, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, MultElemKernel>> {
     let clk_horizon = x_.data().horizon();
-    ElemLinearOp::new(self.clone(), x_.clone(), None, ScaleElemKernel, clk_horizon, {
+    ElemLinearOp::new(self.clone(), x_.clone(), None, MultElemKernel, clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1347,9 +1347,13 @@ impl<Op> ScalarLinearExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'sta
       })
     })
   }
+
+  fn elem_mult_add(&self, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>, b_: Rc<ArrayOp<f32>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, MultElemKernel>> {
+    unimplemented!();
+  }
 }
 
-impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, ScaleElemKernel> {
+impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, MultElemKernel> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1926,6 +1930,158 @@ impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, Cud
     let node = self._id();
     if self.x.grad2.accumulate(txn, node, |grad2| grad2.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       unimplemented!();
+    }
+  }
+}
+
+impl<Op> BatchStatsExt<DeviceBatchArray3d<f32>, DeviceArray1d<f32>> for Rc<Op> where Op: ArrayOp<DeviceBatchArray3d<f32>> {
+  fn batch_stats(x_: Rc<Op>) -> BatchStatsOutput<DeviceArray1d<f32>> {
+    // TODO
+    unimplemented!();
+  }
+}
+
+impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>> {
+  fn _configure(&self, f: &Fn(&mut BatchStatsConfig)) {
+    // FIXME(20170214): only safe to mutate state at the beginning of a txn.
+    let mut state = self.state.borrow_mut();
+    f(&mut state.cfg);
+  }
+
+  fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
+    let mut state = self.state.borrow_mut();
+    match state.curr_txn {
+      None => {
+        state.curr_txn = Some(txn);
+        state.inner_mode = mode;
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          state.curr_txn = Some(txn);
+          state.inner_mode = mode;
+        } else {
+          assert_eq!(state.inner_mode, mode);
+        }
+      }
+    }
+  }
+
+  fn _accumulate(&self, txn: TxnId) {
+    let node = self._id();
+    let mut state = self.state.borrow_mut();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    // FIXME: does not account for non-uniform batch sizes.
+    let n = (state.batch_ct + 1) as f32;
+    // TODO(20170228)
+    unimplemented!();
+    /*//self.mean_acc.val.rollover(txn, self.mean_acc.val.var()); // FIXME
+    if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
+      assert!(!self.mean.val.overwrite(txn, node));
+      self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_excl(txn, node).as_view());
+    }
+    //self.var_acc.val.rollover(txn, self.var_acc.val.var()); // FIXME
+    if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
+      assert!(!self.var.val.overwrite(txn, node));
+      self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_excl(txn, node).as_view());
+    }*/
+    state.batch_ct += 1;
+  }
+
+  fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId) {
+    let node = self._id();
+    let mut state = self.state.borrow_mut();
+    assert!(state.batch_ct >= 1);
+    // FIXME: rather than directly average with `rate`, should use a
+    // normalized rate for bias correction.
+    let rate = state.cfg.average.rate(state.update_ct) as f32;
+    // TODO(20170228)
+    unimplemented!();
+    /*//self.mean_run.val.rollover(next_txn, self.mean_run.val.var()); // FIXME
+    if self.mean_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
+      if rate != 0.0 {
+        self.mean_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.mean_acc.val.get(prev_txn, node).as_view());
+      }
+      if self.mean_acc.val.overwrite(next_txn, node) {
+        self.mean_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
+      }
+    }
+    //self.var_run.val.rollover(next_txn, self.var_run.val.var()); // FIXME
+    if self.var_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
+      if rate != 0.0 {
+        self.var_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.var_acc.val.get(prev_txn, node).as_view());
+      }
+      if self.var_acc.val.overwrite(next_txn, node) {
+        self.var_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
+      }
+    }*/
+    state.batch_ct = 0;
+    state.update_ct += 1;
+  }
+}
+
+impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.mean.rollover_all(txn, vars);
+    self.var.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    let mut state = self.state.borrow_mut();
+    match state.get_mode(txn) {
+      BatchStatsMode::PassThrough => {
+        if self.mean.val.overwrite(txn, node) {
+          let mut val = self.mean.val.get_excl(txn, node);
+          unimplemented!();
+        }
+        if self.var.val.overwrite(txn, node) {
+          let mut val = self.mean.val.get_excl(txn, node);
+          unimplemented!();
+        }
+      }
+      BatchStatsMode::UseFixedRunningStats => {
+        // Do nothing.
+      }
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    let mut state = self.state.borrow_mut();
+    match state.get_mode(txn) {
+      BatchStatsMode::PassThrough => {
+        if self.mean.grad.accumulate(txn, node, |grad| { /* TODO */ }) {
+          let mut grad = self.mean.grad.get_mut(txn, node);
+          unimplemented!();
+        }
+        if self.var.grad.accumulate(txn, node, |grad| { /* TODO */ }) {
+          let mut grad = self.var.grad.get_mut(txn, node);
+          unimplemented!();
+        }
+      }
+      BatchStatsMode::UseFixedRunningStats => {
+        // Do nothing.
+      }
     }
   }
 }

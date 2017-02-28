@@ -1774,17 +1774,16 @@ impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
   }
 }
 
-pub struct ScaleElemKernel;
-pub struct NormalizeElemKernel;
+pub struct MultElemKernel;
+pub struct NormalizeElemKernel{pub epsilon: f64}
 
-pub trait ScalarLinearExt<A, V> {
-  fn scale(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, ScaleElemKernel>>;
+pub trait ElemMultExt<A, V> {
+  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, MultElemKernel>>;
+  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, MultElemKernel>>;
 }
 
-pub trait ElemLinearExt<A, V> {
-  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, ScaleElemKernel>>;
-  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, ScaleElemKernel>>;
-  fn normalize(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, NormalizeElemKernel>>;
+pub trait ElemNormalizeExt<A, V> {
+  fn elem_normalize(&self, mean_: Rc<ArrayOp<A>>, var_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, NormalizeElemKernel>>;
 }
 
 impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<A, V, Kernel>: AutodiffOp {
@@ -1793,7 +1792,7 @@ impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<
   }
 }
 
-impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, ScaleElemKernel> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, MultElemKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -2075,24 +2074,24 @@ impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIn
 }
 
 #[derive(Clone, Copy)]
-pub enum BatchNormAverage {
+pub enum BatchStatsAverage {
   Geometric(f64),
   Arithmetic,
   ArithmeticCountCutoff(usize),
   ArithmeticRateCutoff(f64),
 }
 
-impl BatchNormAverage {
+impl BatchStatsAverage {
   pub fn rate(self, update_ct: usize) -> f64 {
     let n = (update_ct + 1) as f64;
     match self {
-      BatchNormAverage::Geometric(rate) => rate,
-      BatchNormAverage::Arithmetic => 1.0 / n,
-      BatchNormAverage::ArithmeticCountCutoff(max_ct) => {
+      BatchStatsAverage::Geometric(rate) => rate,
+      BatchStatsAverage::Arithmetic => 1.0 / n,
+      BatchStatsAverage::ArithmeticCountCutoff(max_ct) => {
         if update_ct >= max_ct { 0.0 }
         else { 1.0 / n }
       }
-      BatchNormAverage::ArithmeticRateCutoff(max_rate) => {
+      BatchStatsAverage::ArithmeticRateCutoff(max_rate) => {
         let rate = 1.0 / n;
         if rate >= max_rate { 0.0 }
         else { rate }
@@ -2102,44 +2101,65 @@ impl BatchNormAverage {
 }
 
 #[derive(Clone, Copy)]
-pub enum BatchNormUnbias {
+pub enum BatchStatsUnbias {
   Normalize,
 }
 
-#[derive(Clone)]
-pub struct BatchNormConfig {
-  pub average:  BatchNormAverage,
-  pub unbias:   BatchNormUnbias,
-}
-
 #[derive(Clone, Copy)]
-pub enum BatchNormMode {
-  DiffThrough,
-  UseRunningStats,
+pub struct BatchStatsConfig {
+  pub average:  BatchStatsAverage,
+  //pub unbias:   BatchStatsUnbias,
 }
 
-pub struct BatchNormState<Idx> where Idx: ArrayIndex {
-  pub axes:         Idx::Axes,
-  pub cfg:          BatchNormConfig,
-  pub mode:         BatchNormMode,
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BatchStatsMode {
+  PassThrough,
+  UseFixedRunningStats,
+}
+
+pub struct BatchStatsState<Idx> where Idx: ArrayIndex {
+  pub reduce_axes:  Idx::Axes,
+  pub cfg:          BatchStatsConfig,
+  pub curr_txn:     Option<TxnId>,
+  pub inner_mode:   BatchStatsMode,
   pub batch_ct:     usize,
   pub update_ct:    usize,
 }
 
-pub struct BatchNormControl {
-  ops:  Vec<Rc<BatchNormOpExt>>,
+impl<Idx> BatchStatsState<Idx> where Idx: ArrayIndex {
+  pub fn new(reduce_axes: Idx::Axes, cfg: BatchStatsConfig) -> Self {
+    unimplemented!();
+  }
+
+  pub fn get_mode(&mut self, txn: TxnId) -> BatchStatsMode {
+    match self.curr_txn {
+      None => {
+        self.curr_txn = Some(txn);
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          self.curr_txn = Some(txn);
+        }
+      }
+    }
+    self.inner_mode
+  }
 }
 
-impl BatchNormControl {
-  pub fn configure(&self, f: &Fn(&mut BatchNormConfig)) {
+pub struct BatchStatsControl {
+  ops:  Vec<Rc<BatchStatsOpExt>>,
+}
+
+impl BatchStatsControl {
+  pub fn configure(&self, f: &Fn(&mut BatchStatsConfig)) {
     for op in self.ops.iter() {
       op._configure(f);
     }
   }
 
-  pub fn set_mode(&self, mode: BatchNormMode) {
+  pub fn set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
     for op in self.ops.iter() {
-      op._set_mode(mode);
+      op._set_mode(txn, mode);
     }
   }
 
@@ -2156,35 +2176,96 @@ impl BatchNormControl {
   }
 }
 
-pub trait BatchNormOpExt {
-  fn _configure(&self, f: &Fn(&mut BatchNormConfig));
-  fn _set_mode(&self, mode: BatchNormMode);
+pub trait BatchStatsOpExt {
+  fn _configure(&self, f: &Fn(&mut BatchStatsConfig));
+  fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode);
   fn _accumulate(&self, txn: TxnId);
   fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId);
 }
 
-pub struct BatchNormOp<Idx, A, M> where Idx: ArrayIndex {
-  node_id:  NodeId,
-  stack:    OperatorStack,
-  state:    Rc<RefCell<BatchNormState<Idx>>>,
-  x_:       Rc<ArrayOp<A>>,
-  x:        ArrayData<A>,
-  mean:     ArrayData<M>,
-  mean_acc: ArrayData<M>,
-  mean_run: ArrayData<M>,
-  var:      ArrayData<M>,
-  var_acc:  ArrayData<M>,
-  var_run:  ArrayData<M>,
-  mean_op:      Weak<PassOp<M>>,
-  mean_acc_op:  Rc<ArraySrc<M>>,
-  mean_run_op:  Rc<ArraySrc<M>>,
-  var_op:       Weak<PassOp<M>>,
-  var_acc_op:   Rc<ArraySrc<M>>,
-  var_run_op:   Rc<ArraySrc<M>>,
+#[derive(Clone)]
+pub struct BatchStatsOutput<M> {
+  pub mean:     Rc<PassOp<M>>,
+  pub var:      Rc<PassOp<M>>,
+  pub mean_run: Rc<ArraySrc<M>>,
+  pub var_run:  Rc<ArraySrc<M>>,
 }
 
-impl<Idx, A, M> BatchNormOp<Idx, A, M> where Idx: ArrayIndex {
-  pub fn mean(&self) -> Rc<PassOp<M>> {
+pub trait BatchStatsExt<A, M> {
+  fn batch_stats(x_: Self) -> BatchStatsOutput<M> where Self: Sized;
+}
+
+pub fn batch_stats<Op, A, M>(x_: Rc<Op>) -> BatchStatsOutput<M> where Rc<Op>: BatchStatsExt<A, M>, Op: 'static + ArrayOp<A> {
+  <Rc<Op> as BatchStatsExt<A, M>>::batch_stats(x_)
+}
+
+pub struct BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
+  node_id:      NodeId,
+  stack:        OperatorStack,
+  state:        RefCell<BatchStatsState<Idx>>,
+  x_:           Rc<ArrayOp<A>>,
+  mean_:        Weak<PassOp<M>>,
+  mean_acc_:    Rc<ArraySrc<M>>,
+  mean_run_:    Rc<ArraySrc<M>>,
+  var_:         Weak<PassOp<M>>,
+  var_acc_:     Rc<ArraySrc<M>>,
+  var_run_:     Rc<ArraySrc<M>>,
+  x:            ArrayData<A>,
+  mean:         ArrayData<M>,
+  mean_acc:     ArrayData<M>,
+  mean_run:     ArrayData<M>,
+  var:          ArrayData<M>,
+  var_acc:      ArrayData<M>,
+  var_run:      ArrayData<M>,
+}
+
+impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffOp, ArraySrc<M>: AutodiffOp, Idx: 'static + ArrayIndex, A: 'static, M: 'static {
+  pub fn new<Op>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, x_: Rc<Op>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> M>) -> BatchStatsOutput<M> where Op: 'static + ArrayOp<A> {
+    let node = NodeId::new();
+    let x = x_.data();
+    let mean = ArrayData::new(clk_horizon, alloc.clone());
+    let var = ArrayData::new(clk_horizon, alloc.clone());
+    let mean_ = PassOp::new(None, mean.clone());
+    let var_ = PassOp::new(None, var.clone());
+    // FIXME: some hackiness around clocks.
+    let mean_acc_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
+    let mean_run_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
+    let var_acc_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
+    let var_run_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
+    let mean_acc = mean_acc_.data();
+    let mean_run = mean_run_.data();
+    let var_acc = var_acc_.data();
+    let var_run = var_run_.data();
+    let op = Rc::new(BatchStatsOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      state:    RefCell::new(BatchStatsState::new(reduce_axes, cfg)),
+      x_:           x_,
+      mean_:        Rc::downgrade(&mean_),
+      mean_acc_:    mean_acc_,
+      mean_run_:    mean_run_.clone(),
+      var_:         Rc::downgrade(&var_),
+      var_acc_:     var_acc_,
+      var_run_:     var_run_.clone(),
+      x:            x,
+      mean:         mean,
+      mean_acc:     mean_acc,
+      mean_run:     mean_run,
+      var:          var,
+      var_acc:      var_acc,
+      var_run:      var_run,
+    });
+    *mean_.x_.borrow_mut() = Some(AutodiffOp::from(op.clone()));
+    *var_.x_.borrow_mut() = Some(AutodiffOp::from(op.clone()));
+    BatchStatsOutput{
+      mean:     mean_,
+      var:      var_,
+      mean_run: mean_run_,
+      var_run:  var_run_,
+    }
+  }
+
+  /*pub fn mean(&self) -> Rc<PassOp<M>> {
     match Weak::upgrade(&self.mean_op) {
       None => panic!(),
       Some(op) => op,
@@ -2196,21 +2277,33 @@ impl<Idx, A, M> BatchNormOp<Idx, A, M> where Idx: ArrayIndex {
       None => panic!(),
       Some(op) => op,
     }
-  }
+  }*/
 }
 
-//impl<Idx, A, M> BatchNormOpExt for BatchNormOp<Idx, A, M> where Idx: ArrayIndex {
-impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn _configure(&self, f: &Fn(&mut BatchNormConfig)) {
+//impl<Idx, A, M> BatchStatsOpExt for BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
+impl<S> BatchStatsOpExt for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
+  fn _configure(&self, f: &Fn(&mut BatchStatsConfig)) {
     // FIXME(20170214): only safe to mutate state at the beginning of a txn.
     let mut state = self.state.borrow_mut();
     f(&mut state.cfg);
   }
 
-  fn _set_mode(&self, mode: BatchNormMode) {
-    // FIXME(20170214): only safe to mutate state at the beginning of a txn.
+  fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
     let mut state = self.state.borrow_mut();
-    state.mode = mode;
+    match state.curr_txn {
+      None => {
+        state.curr_txn = Some(txn);
+        state.inner_mode = mode;
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          state.curr_txn = Some(txn);
+          state.inner_mode = mode;
+        } else {
+          assert_eq!(state.inner_mode, mode);
+        }
+      }
+    }
   }
 
   fn _accumulate(&self, txn: TxnId) {
@@ -2235,9 +2328,10 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
   fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId) {
     let node = self._id();
     let mut state = self.state.borrow_mut();
-    let rate = state.cfg.average.rate(state.update_ct) as f32;
+    assert!(state.batch_ct >= 1);
     // FIXME: rather than directly average with `rate`, should use a
     // normalized rate for bias correction.
+    let rate = state.cfg.average.rate(state.update_ct) as f32;
     //self.mean_run.val.rollover(next_txn, self.mean_run.val.var()); // FIXME
     if self.mean_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       if rate != 0.0 {
@@ -2261,7 +2355,7 @@ impl<S> BatchNormOpExt for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32,
   }
 }
 
-impl<S> AutodiffOp for BatchNormOp<usize, BatchArray3d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

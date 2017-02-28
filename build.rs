@@ -29,9 +29,10 @@ fn main() {
 
   gcc::Config::new()
     .compiler(&cc)
-    .opt_level(3)
+    .opt_level(2)
     .pic(true)
     .flag("-std=gnu99")
+    .flag("-mfpmath=sse")
     .flag("-march=native")
     .flag("-fno-strict-aliasing")
     //.include("kernels")
@@ -47,7 +48,7 @@ fn main() {
 
   gcc::Config::new()
     .compiler("/usr/local/cuda/bin/nvcc")
-    .opt_level(3)
+    .opt_level(2)
     .flag("-arch=sm_52")
     .flag("-prec-div=true")
     .flag("-prec-sqrt=true")

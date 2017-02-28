@@ -26,6 +26,7 @@ use std::cell::{Cell, RefCell, Ref, RefMut};
 //use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc};
+use std::sync::{Arc};
 
 pub mod ffi;
 pub mod ops;
@@ -303,9 +304,9 @@ pub trait AutodiffOp {
   fn _reset_clock(&self) {}
   fn _set_clock(&self, clk: usize) { unimplemented!(); }
 
-  fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized {
-    op.clone()
-  }
+  fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op }
+  fn from_shared(op: Arc<Self>) -> Arc<AutodiffOp> where Self: 'static + Sized { op }
+  fn from_owned(op: Box<Self>) -> Box<AutodiffOp> where Self: 'static + Sized { op }
 
   fn serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
     let epoch = Epoch::new(self._id());
@@ -465,9 +466,9 @@ pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
 pub trait ArrayOp<A>: AutodiffOp {
   fn _data(&self) -> &ArrayData<A>;
 
-  fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized {
-    op.clone()
-  }
+  fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op }
+  fn from_shared(op: Arc<Self>) -> Arc<ArrayOp<A>> where Self: 'static + Sized { op }
+  fn from_owned(op: Box<Self>) -> Box<ArrayOp<A>> where Self: 'static + Sized { op }
 
   fn data(&self) -> ArrayData<A> {
     self._data().clone()
