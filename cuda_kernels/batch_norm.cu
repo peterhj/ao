@@ -303,7 +303,6 @@ __global__ void conv_batch_stats_bwd_f32_kernel(
     const float *mean,
     const float *mean_grad,
     const float *var_grad,
-    float epsilon,
     float *x_grad)
 {
   uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
@@ -323,11 +322,10 @@ extern "C" void arraydiff_cuda_kernel_conv_batch_stats_bwd_f32(
     const float *mean,
     const float *mean_grad,
     const float *var_grad,
-    float epsilon,
     float *x_grad,
     cudaStream_t stream)
 {
   uint32_t n = spatial_dim * chan_dim * batch_sz;
   conv_batch_stats_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
-      spatial_dim, chan_dim, batch_sz, x, mean, mean_grad, var_grad, epsilon, x_grad);
+      spatial_dim, chan_dim, batch_sz, x, mean, mean_grad, var_grad, x_grad);
 }

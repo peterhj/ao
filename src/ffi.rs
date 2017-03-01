@@ -89,8 +89,7 @@ extern "C" {
       x: *const f32,
       mean: *const f32,
       mean_grad: *const f32,
-      var_grad: *mut f32,
-      epsilon: f32,
+      var_grad: *const f32,
       x_grad: *mut f32,
       stream: cudaStream_t);
 
