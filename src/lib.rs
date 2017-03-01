@@ -463,6 +463,28 @@ pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
   }
 }
 
+pub trait OutputData: Clone {
+  fn vars(&self) -> VarSet;
+}
+
+pub trait OutputOp: AutodiffOp {
+  type Data: OutputData;
+
+  fn _data(&self) -> &Self::Data;
+
+  fn from(op: Rc<Self>) -> Rc<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
+  fn from_shared(op: Arc<Self>) -> Arc<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
+  fn from_owned(op: Box<Self>) -> Box<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
+
+  fn data(&self) -> Self::Data {
+    self._data().clone()
+  }
+
+  fn vars(&self) -> VarSet {
+    self._data().vars()
+  }
+}
+
 pub trait ArrayOp<A>: AutodiffOp {
   fn _data(&self) -> &ArrayData<A>;
 

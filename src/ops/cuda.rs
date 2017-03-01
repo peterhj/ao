@@ -771,6 +771,66 @@ impl AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<Ref
   }
 }
 
+impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f32>>>, ArrayData<DeviceArray1d<f32>>> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.on_._push(epoch, apply);
+      self.off_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.off_._pop(epoch, apply);
+      self.on_._pop(epoch, apply);
+    }
+  }
+
+  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self.output.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.output.val.overwrite(txn, node) {
+      match self.cond.val.get(txn) {
+        false => {
+          self.output.val.get_excl(txn, node).as_view_mut()
+            .copy(self.off.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
+        }
+        true  => {
+          self.output.val.get_excl(txn, node).as_view_mut()
+            .copy(self.on.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
+        }
+      }
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    match self.cond.val.get(txn) {
+      false => {
+        if self.off.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          self.off.grad.get_mut(txn, node).as_view_mut()
+            .add(1.0, self.output.grad.get(txn, node).as_view(), DeviceStream::implicit().conn());
+        }
+      }
+      true  => {
+        if self.on.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          self.on.grad.get_mut(txn, node).as_view_mut()
+            .add(1.0, self.output.grad.get(txn, node).as_view(), DeviceStream::implicit().conn());
+        }
+      }
+    }
+  }
+}
+
 impl<Op> SpecialMapExt</*f32,*/ DeviceArray1d<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray1d<f32>> {
   fn rect(&self) -> Rc<MapOp<DeviceArray1d<f32>, RectMapKernel>> {
     let clk_horizon = self.data().horizon();

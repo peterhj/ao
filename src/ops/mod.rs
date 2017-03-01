@@ -118,6 +118,54 @@ pub fn sequential_src<A, F>(horizon: usize, cons: F) -> Rc<ArraySrc<A>> where F:
   let x: Rc<ArraySrc<Array1d<f32>>> = var(|_, _| Array1d::zeros(10));
 }*/
 
+pub struct TxnCopyValue<A> where A: Copy {
+  curr_txn: Cell<Option<TxnId>>,
+  value:    Cell<Option<A>>,
+}
+
+impl<A> TxnCopyValue<A> where A: Copy {
+  pub fn get(&self, txn: TxnId) -> A {
+    match self.curr_txn.get() {
+      None => {
+        panic!();
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          panic!();
+        } else {
+          match self.value.get() {
+            None => panic!(),
+            Some(v) => v,
+          }
+        }
+      }
+    }
+  }
+
+  pub fn set(&self, txn: TxnId, new_value: A) {
+    match self.curr_txn.get() {
+      None => {
+        self.curr_txn.set(Some(txn));
+        self.value.set(Some(new_value));
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          self.curr_txn.set(Some(txn));
+          self.value.set(Some(new_value));
+        } else {
+          assert_eq!(prev_txn, txn);
+        }
+      }
+    }
+  }
+}
+
+pub struct CopyConstant<A> where A: Copy {
+  /*node_id:  NodeId,
+  stack:    OperatorStack,*/
+  pub val:  TxnCopyValue<A>,
+}
+
 pub struct ArraySrc<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
@@ -816,6 +864,26 @@ impl<S> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<Ref
   }
 
   fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+}
+
+pub struct BranchOp<Cond, In, Data> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  cond:     Cond,
+  on_:      In,
+  off_:     In,
+  on:       Data,
+  off:      Data,
+  output:   Data,
+}
+
+//impl<In, Data> OutputOp for BranchOp<CopyConstant<bool>, In, Data> where BranchOp<CopyConstant<bool>, In, Data>: AutodiffOp, In: OutputData<Data=Data>, Data: OutputData {
+impl<Cond, In, Data> OutputOp for BranchOp<Cond, In, Data> where BranchOp<Cond, In, Data>: AutodiffOp, Data: OutputData {
+  type Data = Data;
+
+  fn _data(&self) -> &Data {
+    &self.output
   }
 }
 
