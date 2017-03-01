@@ -1774,17 +1774,17 @@ impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
   }
 }
 
-pub struct MultElemKernel;
-pub struct NormalizeElemKernel{pub epsilon: f64}
+pub struct ElemMultKernel;
+pub struct ElemNormalizeKernel{pub epsilon: f64}
 
 pub trait ElemMultExt<A, V> {
-  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, MultElemKernel>>;
-  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, MultElemKernel>>;
+  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, ElemMultKernel>>;
+  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, ElemMultKernel>>;
 }
 
-pub trait ElemNormalizeExt<A, V> {
-  fn elem_normalize(&self, mean_: Rc<ArrayOp<A>>, var_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, NormalizeElemKernel>>;
-}
+/*pub trait ElemNormalizeExt<A, V> {
+  fn elem_normalize(&self, mean_: Rc<ArrayOp<A>>, var_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, ElemNormalizeKernel>>;
+}*/
 
 impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<A, V, Kernel>: AutodiffOp {
   default fn _data(&self) -> &ArrayData<V> {
@@ -1792,7 +1792,7 @@ impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<
   }
 }
 
-impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, MultElemKernel> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, ElemMultKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1855,7 +1855,7 @@ impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, MultElemKernel> w
   }
 }
 
-impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, NormalizeElemKernel> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, ElemNormalizeKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1915,6 +1915,52 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, Norma
   fn _backward2(&self, txn: TxnId) {
     // TODO
     unimplemented!();
+  }
+}
+
+pub struct ElemNormalizeOp<Idx, A, V> where Idx: ArrayIndex {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  axes:     Idx::Axes,
+  epsilon:  f64,
+  x_:       Rc<ArrayOp<V>>,
+  mean_:    Rc<ArrayOp<A>>,
+  var_:     Rc<ArrayOp<A>>,
+  x:        ArrayData<V>,
+  mean:     ArrayData<A>,
+  var:      ArrayData<A>,
+  y:        ArrayData<V>,
+}
+
+impl<Idx, A, V> ElemNormalizeOp<Idx, A, V> where Idx: ArrayIndex {
+  pub fn new(axes: Idx::Axes, epsilon: f64, x_: Rc<ArrayOp<V>>, mean_: Rc<ArrayOp<A>>, var_: Rc<ArrayOp<A>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+    let node = NodeId::new();
+    let x = x_.data();
+    let mean = mean_.data();
+    let var = var_.data();
+    Rc::new(ElemNormalizeOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 3),
+      axes:     axes,
+      epsilon:  epsilon,
+      x_:       x_,
+      mean_:    mean_,
+      var_:     var_,
+      x:        x,
+      mean:     mean,
+      var:      var,
+      y:        ArrayData::new(clk_horizon, alloc.clone()),
+    })
+  }
+}
+
+pub trait ElemNormalizeExt<Idx, A, V> where Idx: ArrayIndex {
+  fn elem_normalize(&self, axes: Idx::Axes, epsilon: f64, mean_: Rc<ArrayOp<A>>, var_: Rc<ArrayOp<A>>) -> Rc<ElemNormalizeOp<Idx, A, V>>;
+}
+
+impl<Idx, A, V> ArrayOp<V> for ElemNormalizeOp<Idx, A, V> where ElemNormalizeOp<Idx, A, V>: AutodiffOp, Idx: ArrayIndex {
+  default fn _data(&self) -> &ArrayData<V> {
+    &self.y
   }
 }
 
@@ -2144,6 +2190,23 @@ impl<Idx> BatchStatsState<Idx> where Idx: ArrayIndex {
     }
     self.inner_mode
   }
+
+  pub fn set_mode(&mut self, txn: TxnId, mode: BatchStatsMode) {
+    match self.curr_txn {
+      None => {
+        self.curr_txn = Some(txn);
+        self.inner_mode = mode;
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          self.curr_txn = Some(txn);
+          self.inner_mode = mode;
+        } else {
+          assert_eq!(self.inner_mode, mode);
+        }
+      }
+    }
+  }
 }
 
 pub struct BatchStatsControl {
@@ -2198,12 +2261,12 @@ pub struct BatchStatsOutput<M> {
   pub var_run:  Rc<ArraySrc<M>>,
 }
 
-pub trait BatchStatsExt<A, M> {
-  fn batch_stats(x_: Self) -> BatchStatsOutput<M> where Self: Sized;
+pub trait BatchStatsExt<Idx, A, M> where Idx: ArrayIndex {
+  fn batch_stats(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, x_: Self) -> BatchStatsOutput<M> where Self: Sized;
 }
 
-pub fn batch_stats<Op, A, M>(x_: Rc<Op>) -> BatchStatsOutput<M> where Rc<Op>: BatchStatsExt<A, M>, Op: 'static + ArrayOp<A> {
-  <Rc<Op> as BatchStatsExt<A, M>>::batch_stats(x_)
+pub fn batch_stats<Op, Idx, A, M>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, x_: Rc<Op>) -> BatchStatsOutput<M> where Rc<Op>: BatchStatsExt<Idx, A, M>, Op: 'static + ArrayOp<A>, Idx: ArrayIndex {
+  <Rc<Op> as BatchStatsExt<Idx, A, M>>::batch_stats(reduce_axes, cfg, x_)
 }
 
 pub struct BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
@@ -2289,28 +2352,15 @@ impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffO
 
 //impl<Idx, A, M> BatchStatsOpExt for BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
 impl<S> BatchStatsOpExt for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn _configure(&self, f: &Fn(&mut BatchStatsConfig)) {
+  fn _configure(&self, reconf: &Fn(&mut BatchStatsConfig)) {
     // FIXME(20170214): only safe to mutate state at the beginning of a txn.
     let mut state = self.state.borrow_mut();
-    f(&mut state.cfg);
+    reconf(&mut state.cfg);
   }
 
   fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
     let mut state = self.state.borrow_mut();
-    match state.curr_txn {
-      None => {
-        state.curr_txn = Some(txn);
-        state.inner_mode = mode;
-      }
-      Some(prev_txn) => {
-        if prev_txn != txn {
-          state.curr_txn = Some(txn);
-          state.inner_mode = mode;
-        } else {
-          assert_eq!(state.inner_mode, mode);
-        }
-      }
-    }
+    state.set_mode(txn, mode);
   }
 
   fn _accumulate(&self, txn: TxnId) {
