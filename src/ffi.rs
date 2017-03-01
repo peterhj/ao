@@ -25,20 +25,73 @@ extern "C" {
   pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
 
-  pub fn arraydiff_cuda_kernel_conv_batch_mean_fwd_nonatomic_f32(
+  pub fn arraydiff_cuda_kernel_conv_normalize_fwd_f32(
       spatial_dim: usize,
-      num_channels: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *const f32,
+      epsilon: f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_normalize_var_bwd_nonatomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *const f32,
+      y_grad: *const f32,
+      epsilon: f32,
+      var_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_normalize_mean_bwd_nonatomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *const f32,
+      var_grad: *const f32,
+      y_grad: *const f32,
+      epsilon: f32,
+      mean_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_normalize_input_bwd_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      var: *const f32,
+      y_grad: *const f32,
+      epsilon: f32,
+      x_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_nonatomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
       batch_sz: usize,
       x: *const f32,
       mean: *mut f32,
       stream: cudaStream_t);
-  pub fn arraydiff_cuda_kernel_conv_batch_var_fwd_nonatomic_f32(
+  pub fn arraydiff_cuda_kernel_conv_batch_stats_var_fwd_nonatomic_f32(
       spatial_dim: usize,
-      num_channels: usize,
+      chan_dim: usize,
       batch_sz: usize,
       x: *const f32,
       mean: *const f32,
       var: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_batch_stats_bwd_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      mean_grad: *const f32,
+      var_grad: *mut f32,
+      epsilon: f32,
+      x_grad: *mut f32,
       stream: cudaStream_t);
 
   pub fn arraydiff_cuda_kernel_blockreduce_max_argmax_f32(
