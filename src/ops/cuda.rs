@@ -1492,8 +1492,59 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
   }
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    // TODO
-    unimplemented!();
+    let node = self._id();
+    match self.axes {
+      Axes((0, 1)) => {
+        let batch_sz = self.x.val.get(txn, node).batch_size();
+        let x_dim = self.x.val.get(txn, node).dim();
+        let spatial_dim = x_dim.0 * x_dim.1;
+        let chan_dim = x_dim.2;
+        // TODO: wait/post.
+        if self.var.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
+          unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_nonatomic_f32(
+              spatial_dim,
+              chan_dim,
+              batch_sz,
+              self.x.val.get(txn, node).as_view().as_ptr(),
+              self.mean.val.get(txn, node).as_view().as_ptr(),
+              self.var.val.get(txn, node).as_view().as_ptr(),
+              self.y.grad.get(txn, node).as_view().as_ptr(),
+              self.epsilon as f32,
+              self.var.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+          ) };
+        }
+        if self.mean.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
+          unsafe { arraydiff_cuda_kernel_conv_normalize_mean_bwd_nonatomic_f32(
+              spatial_dim,
+              chan_dim,
+              batch_sz,
+              self.x.val.get(txn, node).as_view().as_ptr(),
+              self.mean.val.get(txn, node).as_view().as_ptr(),
+              self.var.val.get(txn, node).as_view().as_ptr(),
+              self.var.grad.get_mut(txn, node).as_view().as_ptr(),
+              self.y.grad.get(txn, node).as_view().as_ptr(),
+              self.epsilon as f32,
+              self.mean.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+          ) };
+        }
+        if self.x.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
+          self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
+          unsafe { arraydiff_cuda_kernel_conv_normalize_input_bwd_f32(
+              spatial_dim,
+              chan_dim,
+              batch_sz,
+              self.var.val.get(txn, node).as_view().as_ptr(),
+              self.y.grad.get(txn, node).as_view().as_ptr(),
+              self.epsilon as f32,
+              self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+          ) };
+        }
+      }
+      _ => unimplemented!(),
+    }
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {

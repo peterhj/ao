@@ -2174,7 +2174,14 @@ pub struct BatchStatsState<Idx> where Idx: ArrayIndex {
 
 impl<Idx> BatchStatsState<Idx> where Idx: ArrayIndex {
   pub fn new(reduce_axes: Idx::Axes, cfg: BatchStatsConfig) -> Self {
-    unimplemented!();
+    BatchStatsState{
+      reduce_axes:  reduce_axes,
+      cfg:          cfg,
+      curr_txn:     None,
+      inner_mode:   BatchStatsMode::PassThrough,
+      batch_ct:     0,
+      update_ct:    0,
+    }
   }
 
   pub fn get_mode(&mut self, txn: TxnId) -> BatchStatsMode {
