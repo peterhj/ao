@@ -1973,7 +1973,7 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
     // FIXME: does not account for non-uniform batch sizes.
     let n = (state.batch_ct + 1) as f32;
     // TODO(20170228)
-    unimplemented!();
+    //unimplemented!();
     /*//self.mean_acc.val.rollover(txn, self.mean_acc.val.var()); // FIXME
     if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       assert!(!self.mean.val.overwrite(txn, node));
@@ -1995,7 +1995,7 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
     // normalized rate for bias correction.
     let rate = state.cfg.average.rate(state.update_ct) as f32;
     // TODO(20170228)
-    unimplemented!();
+    //unimplemented!();
     /*//self.mean_run.val.rollover(next_txn, self.mean_run.val.var()); // FIXME
     if self.mean_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
       if rate != 0.0 {
@@ -2050,12 +2050,45 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
     match state.get_mode(txn) {
       BatchStatsMode::PassThrough => {
         if self.mean.val.overwrite(txn, node) {
-          let mut val = self.mean.val.get_excl(txn, node);
-          unimplemented!();
+          self.mean.val.get_excl(txn, node).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn());
+          match state.reduce_axes {
+            Axes((0, 1)) => {
+              let x_dim = self.x.val.get(txn, node).dim();
+              let spatial_dim = x_dim.0 * x_dim.1;
+              let chan_dim = x_dim.2;
+              // TODO: wait/post.
+              unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_nonatomic_f32(
+                  spatial_dim,
+                  chan_dim,
+                  batch_sz,
+                  self.x.val.get(txn, node).as_view().as_ptr(),
+                  self.mean.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+                  DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              ) };
+            }
+            _ => unimplemented!(),
+          }
         }
         if self.var.val.overwrite(txn, node) {
-          let mut val = self.var.val.get_excl(txn, node);
-          unimplemented!();
+          self.var.val.get_excl(txn, node).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn());
+          match state.reduce_axes {
+            Axes((0, 1)) => {
+              let x_dim = self.x.val.get(txn, node).dim();
+              let spatial_dim = x_dim.0 * x_dim.1;
+              let chan_dim = x_dim.2;
+              // TODO: wait/post.
+              unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_nonatomic_f32(
+                  spatial_dim,
+                  chan_dim,
+                  batch_sz,
+                  self.x.val.get(txn, node).as_view().as_ptr(),
+                  self.mean.val.get_excl(txn, node).as_view().as_ptr(),
+                  self.var.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+                  DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              ) };
+            }
+            _ => unimplemented!(),
+          }
         }
       }
       BatchStatsMode::UseFixedRunningStats => {
@@ -2070,13 +2103,27 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
     let mut state = self.state.borrow_mut();
     match state.get_mode(txn) {
       BatchStatsMode::PassThrough => {
-        if self.mean.grad.accumulate(txn, node, |grad| { /* TODO */ }) {
-          let mut grad = self.mean.grad.get_mut(txn, node);
-          unimplemented!();
-        }
-        if self.var.grad.accumulate(txn, node, |grad| { /* TODO */ }) {
-          let mut grad = self.var.grad.get_mut(txn, node);
-          unimplemented!();
+        if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          match state.reduce_axes {
+            Axes((0, 1)) => {
+              let x_dim = self.x.val.get(txn, node).dim();
+              let spatial_dim = x_dim.0 * x_dim.1;
+              let chan_dim = x_dim.2;
+              // TODO: wait/post.
+              unsafe { arraydiff_cuda_kernel_conv_batch_stats_bwd_f32(
+                  spatial_dim,
+                  chan_dim,
+                  batch_sz,
+                  self.x.val.get(txn, node).as_view().as_ptr(),
+                  self.mean.val.get_excl(txn, node).as_view().as_ptr(),
+                  self.mean.grad.get(txn, node).as_view().as_ptr(),
+                  self.var.grad.get(txn, node).as_view().as_ptr(),
+                  self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+                  DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              ) };
+            }
+            _ => unimplemented!(),
+          }
         }
       }
       BatchStatsMode::UseFixedRunningStats => {
