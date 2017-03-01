@@ -46,7 +46,30 @@ extern "C" {
       epsilon: f32,
       var_grad: *mut f32,
       stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_normalize_var_bwd_atomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *const f32,
+      y_grad: *const f32,
+      epsilon: f32,
+      var_grad: *mut f32,
+      stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_conv_normalize_mean_bwd_nonatomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *const f32,
+      var_grad: *const f32,
+      y_grad: *const f32,
+      epsilon: f32,
+      mean_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_normalize_mean_bwd_atomic_f32(
       spatial_dim: usize,
       chan_dim: usize,
       batch_sz: usize,

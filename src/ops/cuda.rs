@@ -1501,7 +1501,7 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
         let chan_dim = x_dim.2;
         // TODO: wait/post.
         if self.var.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
-          unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_nonatomic_f32(
+          unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_atomic_f32(
               spatial_dim,
               chan_dim,
               batch_sz,
@@ -1515,7 +1515,7 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
           ) };
         }
         if self.mean.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
-          unsafe { arraydiff_cuda_kernel_conv_normalize_mean_bwd_nonatomic_f32(
+          unsafe { arraydiff_cuda_kernel_conv_normalize_mean_bwd_atomic_f32(
               spatial_dim,
               chan_dim,
               batch_sz,
