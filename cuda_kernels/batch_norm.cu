@@ -203,15 +203,17 @@ __global__ void conv_batch_stats_mean_fwd_nonatomic_f32_kernel(
   __shared__ float cache[1024+32];
   uint32_t chan_idx = blockIdx.x;
   float value = 0.0f;
-  for (uint32_t round = 0; round < num_rounds; round++) {
-    uint32_t round_offset = round * blockDim.x;
-    uint32_t block_dim = min(blockDim.x, spatial_dim * batch_sz - round_offset);
-    uint32_t round_idx = round_offset + threadIdx.x;
-    uint32_t spatial_idx = round_idx % spatial_dim;
-    uint32_t batch_idx = round_idx / spatial_dim;
-    if (spatial_idx < spatial_dim && chan_idx < chan_dim && batch_idx < batch_sz) {
-      uint32_t idx = spatial_idx + spatial_dim * (chan_idx + chan_dim * batch_idx);
-      value += x[idx];
+  if (chan_idx < chan_dim) {
+    for (uint32_t round = 0; round < num_rounds; round++) {
+      uint32_t round_offset = round * blockDim.x;
+      uint32_t block_dim = min(blockDim.x, spatial_dim * batch_sz - round_offset);
+      uint32_t round_idx = round_offset + threadIdx.x;
+      uint32_t spatial_idx = round_idx % spatial_dim;
+      uint32_t batch_idx = round_idx / spatial_dim;
+      if (spatial_idx < spatial_dim && batch_idx < batch_sz) {
+        uint32_t idx = spatial_idx + spatial_dim * (chan_idx + chan_dim * batch_idx);
+        value += x[idx];
+      }
     }
   }
   cache[OFFSET_BANK(threadIdx.x)] = value;
@@ -224,6 +226,45 @@ __global__ void conv_batch_stats_mean_fwd_nonatomic_f32_kernel(
   }
   if (threadIdx.x == 0) {
     mean[chan_idx] += cache[0] / ((float)(spatial_dim * batch_sz));
+  }
+}
+
+__global__ void conv_batch_stats_mean_fwd_atomic_f32_kernel(
+    uint32_t num_rounds,
+    uint32_t round_stride,
+    uint32_t spatial_dim,
+    uint32_t chan_dim,
+    uint32_t batch_sz,
+    const float *x,
+    float *mean)
+{
+  __shared__ float cache[1024+32];
+  uint32_t chan_idx = blockIdx.x % chan_dim;
+  uint32_t round_start = blockIdx.x / chan_dim;
+  float value = 0.0f;
+  if (chan_idx < chan_dim && round_start < round_stride) {
+    for (uint32_t round = round_start; round < num_rounds; round += round_stride) {
+      uint32_t round_offset = round * blockDim.x;
+      uint32_t block_dim = min(blockDim.x, spatial_dim * batch_sz - round_offset);
+      uint32_t round_idx = round_offset + threadIdx.x;
+      uint32_t spatial_idx = round_idx % spatial_dim;
+      uint32_t batch_idx = round_idx / spatial_dim;
+      if (spatial_idx < spatial_dim && batch_idx < batch_sz) {
+        uint32_t idx = spatial_idx + spatial_dim * (chan_idx + chan_dim * batch_idx);
+        value += x[idx];
+      }
+    }
+  }
+  cache[OFFSET_BANK(threadIdx.x)] = value;
+  __syncthreads();
+  for (uint32_t s = 1; s < blockDim.x; s *= 2) {
+    if ((threadIdx.x & (2 * s - 1)) == 0 && (threadIdx.x + s) < blockDim.x) {
+      cache[OFFSET_BANK(threadIdx.x)] += cache[OFFSET_BANK(threadIdx.x + s)];
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) {
+    atomicAdd(&mean[chan_idx], cache[0] / ((float)(spatial_dim * batch_sz)));
   }
 }
 
@@ -242,6 +283,29 @@ extern "C" void arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_nonatomic_f32(
       num_rounds, spatial_dim, chan_dim, batch_sz, x, mean);
 }
 
+extern "C" void arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_atomic_f32(
+    size_t spatial_dim,
+    size_t chan_dim,
+    size_t batch_sz,
+    const float *x,
+    float *mean,
+    cudaStream_t stream)
+{
+  // XXX: `mean` should be zeroed.
+  const uint32_t max_smps = 24; // FIXME: get from cudaDeviceProp.
+  uint32_t num_rounds = (spatial_dim * batch_sz + 1024-1) / 1024;
+  if (chan_dim >= min(num_rounds, max_smps)) {
+    uint32_t num_blocks = chan_dim;
+    conv_batch_stats_mean_fwd_nonatomic_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
+        num_rounds, spatial_dim, chan_dim, batch_sz, x, mean);
+  } else {
+    uint32_t round_stride = (min(num_rounds, max_smps) + chan_dim - 1) / chan_dim;
+    uint32_t num_blocks = round_stride * chan_dim;
+    conv_batch_stats_mean_fwd_atomic_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
+        num_rounds, round_stride, spatial_dim, chan_dim, batch_sz, x, mean);
+  }
+}
+
 __global__ void conv_batch_stats_var_fwd_nonatomic_f32_kernel(
     uint32_t num_rounds,
     uint32_t spatial_dim,
@@ -253,17 +317,19 @@ __global__ void conv_batch_stats_var_fwd_nonatomic_f32_kernel(
 {
   __shared__ float cache[1024+32];
   uint32_t chan_idx = blockIdx.x;
-  float m = mean[chan_idx];
   float value = 0.0f;
-  for (uint32_t round = 0; round < num_rounds; round++) {
-    uint32_t round_offset = round * blockDim.x;
-    uint32_t round_idx = round_offset + threadIdx.x;
-    uint32_t spatial_idx = round_idx % spatial_dim;
-    uint32_t batch_idx = round_idx / spatial_dim;
-    if (spatial_idx < spatial_dim && chan_idx < chan_dim && batch_idx < batch_sz) {
-      uint32_t idx = spatial_idx + spatial_dim * (chan_idx + chan_dim * batch_idx);
-      float residual = x[idx] - m;
-      value += residual * residual;
+  if (chan_idx < chan_dim) {
+    float m = mean[chan_idx];
+    for (uint32_t round = 0; round < num_rounds; round++) {
+      uint32_t round_offset = round * blockDim.x;
+      uint32_t round_idx = round_offset + threadIdx.x;
+      uint32_t spatial_idx = round_idx % spatial_dim;
+      uint32_t batch_idx = round_idx / spatial_dim;
+      if (spatial_idx < spatial_dim && batch_idx < batch_sz) {
+        uint32_t idx = spatial_idx + spatial_dim * (chan_idx + chan_dim * batch_idx);
+        float residual = x[idx] - m;
+        value += residual * residual;
+      }
     }
   }
   cache[OFFSET_BANK(threadIdx.x)] = value;
@@ -276,6 +342,47 @@ __global__ void conv_batch_stats_var_fwd_nonatomic_f32_kernel(
   }
   if (threadIdx.x == 0) {
     var[chan_idx] += cache[0] / ((float)(spatial_dim * (batch_sz - 1)));
+  }
+}
+
+__global__ void conv_batch_stats_var_fwd_atomic_f32_kernel(
+    uint32_t num_rounds,
+    uint32_t round_stride,
+    uint32_t spatial_dim,
+    uint32_t chan_dim,
+    uint32_t batch_sz,
+    const float *x,
+    const float *mean,
+    float *var)
+{
+  __shared__ float cache[1024+32];
+  uint32_t chan_idx = blockIdx.x % chan_dim;
+  uint32_t round_start = blockIdx.x / chan_dim;
+  float value = 0.0f;
+  if (chan_idx < chan_dim && round_start < round_stride) {
+    float m = mean[chan_idx];
+    for (uint32_t round = round_start; round < num_rounds; round += round_stride) {
+      uint32_t round_offset = round * blockDim.x;
+      uint32_t round_idx = round_offset + threadIdx.x;
+      uint32_t spatial_idx = round_idx % spatial_dim;
+      uint32_t batch_idx = round_idx / spatial_dim;
+      if (spatial_idx < spatial_dim && batch_idx < batch_sz) {
+        uint32_t idx = spatial_idx + spatial_dim * (chan_idx + chan_dim * batch_idx);
+        float residual = x[idx] - m;
+        value += residual * residual;
+      }
+    }
+  }
+  cache[OFFSET_BANK(threadIdx.x)] = value;
+  __syncthreads();
+  for (uint32_t s = 1; s < blockDim.x; s *= 2) {
+    if ((threadIdx.x & (2 * s - 1)) == 0 && (threadIdx.x + s) < blockDim.x) {
+      cache[OFFSET_BANK(threadIdx.x)] += cache[OFFSET_BANK(threadIdx.x + s)];
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) {
+    atomicAdd(&var[chan_idx], cache[0] / ((float)(spatial_dim * (batch_sz - 1))));
   }
 }
 
@@ -293,6 +400,30 @@ extern "C" void arraydiff_cuda_kernel_conv_batch_stats_var_fwd_nonatomic_f32(
   uint32_t num_blocks = chan_dim;
   conv_batch_stats_var_fwd_nonatomic_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
       num_rounds, spatial_dim, chan_dim, batch_sz, x, mean, var);
+}
+
+extern "C" void arraydiff_cuda_kernel_conv_batch_stats_var_fwd_atomic_f32(
+    size_t spatial_dim,
+    size_t chan_dim,
+    size_t batch_sz,
+    const float *x,
+    const float *mean,
+    float *var,
+    cudaStream_t stream)
+{
+  // XXX: `var` should be zeroed.
+  const uint32_t max_smps = 24; // FIXME: get from cudaDeviceProp.
+  uint32_t num_rounds = (spatial_dim * batch_sz + 1024-1) / 1024;
+  if (chan_dim >= min(num_rounds, max_smps)) {
+    uint32_t num_blocks = chan_dim;
+    conv_batch_stats_var_fwd_nonatomic_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
+        num_rounds, spatial_dim, chan_dim, batch_sz, x, mean, var);
+  } else {
+    uint32_t round_stride = (min(num_rounds, max_smps) + chan_dim - 1) / chan_dim;
+    uint32_t num_blocks = round_stride * chan_dim;
+    conv_batch_stats_var_fwd_atomic_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
+        num_rounds, round_stride, spatial_dim, chan_dim, batch_sz, x, mean, var);
+  }
 }
 
 __global__ void conv_batch_stats_bwd_f32_kernel(

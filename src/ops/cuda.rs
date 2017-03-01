@@ -2194,7 +2194,7 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               let spatial_dim = x_dim.0 * x_dim.1;
               let chan_dim = x_dim.2;
               // TODO: wait/post.
-              unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_nonatomic_f32(
+              unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_atomic_f32(
                   spatial_dim,
                   chan_dim,
                   batch_sz,
@@ -2214,7 +2214,7 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               let spatial_dim = x_dim.0 * x_dim.1;
               let chan_dim = x_dim.2;
               // TODO: wait/post.
-              unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_nonatomic_f32(
+              unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_atomic_f32(
                   spatial_dim,
                   chan_dim,
                   batch_sz,

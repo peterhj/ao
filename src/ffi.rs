@@ -74,7 +74,22 @@ extern "C" {
       x: *const f32,
       mean: *mut f32,
       stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_atomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *mut f32,
+      stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_conv_batch_stats_var_fwd_nonatomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_batch_stats_var_fwd_atomic_f32(
       spatial_dim: usize,
       chan_dim: usize,
       batch_sz: usize,
