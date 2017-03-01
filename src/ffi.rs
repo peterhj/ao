@@ -25,6 +25,22 @@ extern "C" {
   pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
 
+  pub fn arraydiff_cuda_kernel_conv_batch_mean_fwd_nonatomic_f32(
+      spatial_dim: usize,
+      num_channels: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_batch_var_fwd_nonatomic_f32(
+      spatial_dim: usize,
+      num_channels: usize,
+      batch_sz: usize,
+      x: *const f32,
+      mean: *const f32,
+      var: *mut f32,
+      stream: cudaStream_t);
+
   pub fn arraydiff_cuda_kernel_blockreduce_max_argmax_f32(
       block_dim: usize,
       num_blocks: usize,

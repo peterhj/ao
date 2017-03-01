@@ -2169,6 +2169,12 @@ impl BatchStatsControl {
     }
   }
 
+  /*pub fn clear_accumulators(&self, txn: TxnId) {
+    for op in self.ops.iter() {
+      op._clear_accumulators(txn);
+    }
+  }*/
+
   pub fn update_stats(&self, prev_txn: TxnId, next_txn: TxnId) {
     for op in self.ops.iter() {
       op._update_stats(prev_txn, next_txn);
@@ -2180,6 +2186,7 @@ pub trait BatchStatsOpExt {
   fn _configure(&self, f: &Fn(&mut BatchStatsConfig));
   fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode);
   fn _accumulate(&self, txn: TxnId);
+  //fn _clear_accumulators(&self, txn: TxnId);
   fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId);
 }
 
@@ -2324,6 +2331,10 @@ impl<S> BatchStatsOpExt for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, A
     }
     state.batch_ct += 1;
   }
+
+  /*fn _clear_accumulators(&self, prev_txn: TxnId, next_txn: TxnId) {
+    unimplemented!();
+  }*/
 
   fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId) {
     let node = self._id();

@@ -2054,7 +2054,7 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
           unimplemented!();
         }
         if self.var.val.overwrite(txn, node) {
-          let mut val = self.mean.val.get_excl(txn, node);
+          let mut val = self.var.val.get_excl(txn, node);
           unimplemented!();
         }
       }
