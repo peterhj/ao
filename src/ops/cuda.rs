@@ -1533,7 +1533,11 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
           let x_dim = self.x.val.get(txn, node).dim();
           let spatial_dim = x_dim.0 * x_dim.1;
           let chan_dim = x_dim.2;
-          // TODO: wait/post.
+          let conn = DeviceStream::implicit().conn();
+          self.x.val.get(txn, node).as_view().wait(&conn);
+          self.mean.val.get(txn, node).as_view().wait(&conn);
+          self.var.val.get(txn, node).as_view().wait(&conn);
+          self.y.val.get_excl(txn, node).as_view().wait(&conn);
           unsafe { arraydiff_cuda_kernel_conv_normalize_fwd_f32(
               spatial_dim,
               chan_dim,
@@ -1543,8 +1547,12 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
               self.var.val.get(txn, node).as_view().as_ptr(),
               self.epsilon as f32,
               self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
-              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              conn.raw_stream().as_ptr(),
           ) };
+          self.x.val.get(txn, node).as_view().post(&conn);
+          self.mean.val.get(txn, node).as_view().post(&conn);
+          self.var.val.get(txn, node).as_view().post(&conn);
+          self.y.val.get_excl(txn, node).as_view().post(&conn);
         }
         _ => unimplemented!(),
       }
@@ -1559,8 +1567,13 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
         let x_dim = self.x.val.get(txn, node).dim();
         let spatial_dim = x_dim.0 * x_dim.1;
         let chan_dim = x_dim.2;
-        // TODO: wait/post.
-        if self.var.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
+        if self.var.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          let conn = DeviceStream::implicit().conn();
+          self.x.val.get(txn, node).as_view().wait(&conn);
+          self.mean.val.get(txn, node).as_view().wait(&conn);
+          self.var.val.get(txn, node).as_view().wait(&conn);
+          self.y.grad.get(txn, node).as_view().wait(&conn);
+          self.var.grad.get_mut(txn, node).as_view().wait(&conn);
           unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_atomic_f32(
               spatial_dim,
               chan_dim,
@@ -1571,10 +1584,22 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
               self.y.grad.get(txn, node).as_view().as_ptr(),
               self.epsilon as f32,
               self.var.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              conn.raw_stream().as_ptr(),
           ) };
+          self.x.val.get(txn, node).as_view().post(&conn);
+          self.mean.val.get(txn, node).as_view().post(&conn);
+          self.var.val.get(txn, node).as_view().post(&conn);
+          self.y.grad.get(txn, node).as_view().post(&conn);
+          self.var.grad.get_mut(txn, node).as_view().post(&conn);
         }
-        if self.mean.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
+        if self.mean.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          let conn = DeviceStream::implicit().conn();
+          self.x.val.get(txn, node).as_view().wait(&conn);
+          self.mean.val.get(txn, node).as_view().wait(&conn);
+          self.var.val.get(txn, node).as_view().wait(&conn);
+          self.var.grad.get_mut(txn, node).as_view().wait(&conn);
+          self.y.grad.get(txn, node).as_view().wait(&conn);
+          self.mean.grad.get_mut(txn, node).as_view().wait(&conn);
           unsafe { arraydiff_cuda_kernel_conv_normalize_mean_bwd_atomic_f32(
               spatial_dim,
               chan_dim,
@@ -1586,11 +1611,20 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
               self.y.grad.get(txn, node).as_view().as_ptr(),
               self.epsilon as f32,
               self.mean.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              conn.raw_stream().as_ptr(),
           ) };
+          self.x.val.get(txn, node).as_view().post(&conn);
+          self.mean.val.get(txn, node).as_view().post(&conn);
+          self.var.val.get(txn, node).as_view().post(&conn);
+          self.var.grad.get_mut(txn, node).as_view().post(&conn);
+          self.y.grad.get(txn, node).as_view().post(&conn);
+          self.mean.grad.get_mut(txn, node).as_view().post(&conn);
         }
-        if self.x.grad.accumulate(txn, node, |grad| {/*TODO*/}) {
-          self.x.grad.get_mut(txn, node).set_batch_size(batch_sz);
+        if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          let conn = DeviceStream::implicit().conn();
+          self.var.val.get(txn, node).as_view().wait(&conn);
+          self.y.grad.get(txn, node).as_view().wait(&conn);
+          self.x.grad.get_mut(txn, node).as_view().wait(&conn);
           unsafe { arraydiff_cuda_kernel_conv_normalize_input_bwd_f32(
               spatial_dim,
               chan_dim,
@@ -1599,8 +1633,11 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
               self.y.grad.get(txn, node).as_view().as_ptr(),
               self.epsilon as f32,
               self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-              DeviceStream::implicit().conn().raw_stream().as_ptr(),
+              conn.raw_stream().as_ptr(),
           ) };
+          self.var.val.get(txn, node).as_view().post(&conn);
+          self.y.grad.get(txn, node).as_view().post(&conn);
+          self.x.grad.get_mut(txn, node).as_view().post(&conn);
         }
       }
       _ => unimplemented!(),
@@ -2253,15 +2290,19 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               let x_dim = self.x.val.get(txn, node).dim();
               let spatial_dim = x_dim.0 * x_dim.1;
               let chan_dim = x_dim.2;
-              // TODO: wait/post.
+              let conn = DeviceStream::implicit().conn();
+              self.x.val.get(txn, node).as_view().wait(&conn);
+              self.mean.val.get_excl(txn, node).as_view().wait(&conn);
               unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_atomic_f32(
                   spatial_dim,
                   chan_dim,
                   batch_sz,
                   self.x.val.get(txn, node).as_view().as_ptr(),
                   self.mean.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
-                  DeviceStream::implicit().conn().raw_stream().as_ptr(),
+                  conn.raw_stream().as_ptr(),
               ) };
+              self.x.val.get(txn, node).as_view().post(&conn);
+              self.mean.val.get_excl(txn, node).as_view().post(&conn);
             }
             _ => unimplemented!(),
           }
@@ -2273,7 +2314,10 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               let x_dim = self.x.val.get(txn, node).dim();
               let spatial_dim = x_dim.0 * x_dim.1;
               let chan_dim = x_dim.2;
-              // TODO: wait/post.
+              let conn = DeviceStream::implicit().conn();
+              self.x.val.get(txn, node).as_view().wait(&conn);
+              self.mean.val.get_excl(txn, node).as_view().wait(&conn);
+              self.var.val.get_excl(txn, node).as_view().wait(&conn);
               unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_atomic_f32(
                   spatial_dim,
                   chan_dim,
@@ -2281,8 +2325,11 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
                   self.x.val.get(txn, node).as_view().as_ptr(),
                   self.mean.val.get_excl(txn, node).as_view().as_ptr(),
                   self.var.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
-                  DeviceStream::implicit().conn().raw_stream().as_ptr(),
+                  conn.raw_stream().as_ptr(),
               ) };
+              self.x.val.get(txn, node).as_view().post(&conn);
+              self.mean.val.get_excl(txn, node).as_view().post(&conn);
+              self.var.val.get_excl(txn, node).as_view().post(&conn);
             }
             _ => unimplemented!(),
           }
@@ -2306,7 +2353,12 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               let x_dim = self.x.val.get(txn, node).dim();
               let spatial_dim = x_dim.0 * x_dim.1;
               let chan_dim = x_dim.2;
-              // TODO: wait/post.
+              let conn = DeviceStream::implicit().conn();
+              self.x.val.get(txn, node).as_view().wait(&conn);
+              self.mean.val.get_excl(txn, node).as_view().wait(&conn);
+              self.mean.grad.get(txn, node).as_view().wait(&conn);
+              self.var.grad.get(txn, node).as_view().wait(&conn);
+              self.x.grad.get_mut(txn, node).as_view().wait(&conn);
               unsafe { arraydiff_cuda_kernel_conv_batch_stats_bwd_f32(
                   spatial_dim,
                   chan_dim,
@@ -2316,8 +2368,13 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
                   self.mean.grad.get(txn, node).as_view().as_ptr(),
                   self.var.grad.get(txn, node).as_view().as_ptr(),
                   self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-                  DeviceStream::implicit().conn().raw_stream().as_ptr(),
+                  conn.raw_stream().as_ptr(),
               ) };
+              self.x.val.get(txn, node).as_view().post(&conn);
+              self.mean.val.get_excl(txn, node).as_view().post(&conn);
+              self.mean.grad.get(txn, node).as_view().post(&conn);
+              self.var.grad.get(txn, node).as_view().post(&conn);
+              self.x.grad.get_mut(txn, node).as_view().post(&conn);
             }
             _ => unimplemented!(),
           }

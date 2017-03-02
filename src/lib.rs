@@ -745,12 +745,14 @@ impl<A> ArrayVar<A> {
         assert!(!buf.coarse_rws.borrow().contains(&node));
         let written = buf.writes.borrow().contains_key(&node);
         if written {
+          assert_eq!(1, buf.writes.borrow().len());
           assert_eq!(self.symbol, *buf.writes.borrow().get(&node).unwrap());
         }
         incomplete_write = !written;
       }
     }
     if new_txn {
+      assert!(incomplete_write);
       buf.curr_txn.set(Some(txn));
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
@@ -784,13 +786,13 @@ impl<A> ArrayVar<A> {
         assert!(!buf.reads.borrow().contains(&node));
         assert!(!buf.writes.borrow().contains_key(&node));
         let rw = buf.read_writes.borrow().contains(&(node, self.symbol));
-        if rw {
-          assert!(buf.coarse_rws.borrow().contains(&node));
-        }
+        let coarse_rw = buf.coarse_rws.borrow().contains(&node);
+        assert_eq!(rw, coarse_rw);
         incomplete_write = !rw;
       }
     }
     if new_txn {
+      assert!(incomplete_write);
       buf.curr_txn.set(Some(txn));
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
@@ -861,16 +863,18 @@ impl<A> ArrayVar<A> {
       let curr_txn = buf.curr_txn.get().unwrap();
       new_txn = curr_txn != txn;
     }
-    if new_txn {
+    /*if new_txn {
       buf.curr_txn.set(Some(txn));
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
-    }
+    }*/
+    assert!(!new_txn);
     assert!(!buf.reads.borrow().contains(&node));
     assert!(!buf.coarse_rws.borrow().contains(&node));
     if buf.writes.borrow().contains_key(&node) {
+      assert_eq!(1, buf.writes.borrow().len());
       assert_eq!(self.symbol, *buf.writes.borrow().get(&node).unwrap());
     } else {
       buf.writes.borrow_mut().insert(node, self.symbol);
@@ -897,18 +901,20 @@ impl<A> ArrayVar<A> {
       let curr_txn = buf.curr_txn.get().unwrap();
       new_txn = curr_txn != txn;
     }
-    if new_txn {
+    /*if new_txn {
       buf.curr_txn.set(Some(txn));
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
-    }
+    }*/
+    assert!(!new_txn);
     assert!(!buf.reads.borrow().contains(&node));
     assert!(!buf.writes.borrow().contains_key(&node));
-    if buf.read_writes.borrow().contains(&(node, self.symbol)) {
-      assert!(buf.coarse_rws.borrow().contains(&node));
-    } else {
+    let rw = buf.read_writes.borrow().contains(&(node, self.symbol));
+    let coarse_rw = buf.coarse_rws.borrow().contains(&node);
+    assert_eq!(rw, coarse_rw);
+    if !rw {
       buf.read_writes.borrow_mut().insert((node, self.symbol));
       buf.coarse_rws.borrow_mut().insert(node);
     }
