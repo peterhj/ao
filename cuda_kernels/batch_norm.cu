@@ -1,7 +1,7 @@
 #include <cuda_runtime_api.h>
 #include <stdint.h>
 
-#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) / 32)); })
+#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) & 31)); })
 
 __global__ void conv_normalize_fwd_f32_kernel(
     uint32_t spatial_dim,
@@ -77,8 +77,10 @@ __global__ void conv_normalize_var_bwd_nonatomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    var_grad[chan_idx] += cache[0];
+  if (chan_idx < chan_dim) {
+    if (threadIdx.x == 0) {
+      var_grad[chan_idx] += cache[0];
+    }
   }
 }
 
@@ -122,8 +124,10 @@ __global__ void conv_normalize_var_bwd_atomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    atomicAdd(&var_grad[chan_idx], cache[0]);
+  if (chan_idx < chan_dim && round_start < round_stride) {
+    if (threadIdx.x == 0) {
+      atomicAdd(&var_grad[chan_idx], cache[0]);
+    }
   }
 }
 
@@ -211,8 +215,10 @@ __global__ void conv_normalize_mean_bwd_nonatomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    mean_grad[chan_idx] += cache[0];
+  if (chan_idx < chan_dim) {
+    if (threadIdx.x == 0) {
+      mean_grad[chan_idx] += cache[0];
+    }
   }
 }
 
@@ -258,8 +264,10 @@ __global__ void conv_normalize_mean_bwd_atomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    atomicAdd(&mean_grad[chan_idx], cache[0]);
+  if (chan_idx < chan_dim && round_start < round_stride) {
+    if (threadIdx.x == 0) {
+      atomicAdd(&mean_grad[chan_idx], cache[0]);
+    }
   }
 }
 
@@ -374,8 +382,10 @@ __global__ void conv_batch_stats_mean_fwd_nonatomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    mean[chan_idx] += cache[0] / ((float)(spatial_dim * batch_sz));
+  if (chan_idx < chan_dim) {
+    if (threadIdx.x == 0) {
+      mean[chan_idx] += cache[0] / ((float)(spatial_dim * batch_sz));
+    }
   }
 }
 
@@ -413,8 +423,10 @@ __global__ void conv_batch_stats_mean_fwd_atomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    atomicAdd(&mean[chan_idx], cache[0] / ((float)(spatial_dim * batch_sz)));
+  if (chan_idx < chan_dim && round_start < round_stride) {
+    if (threadIdx.x == 0) {
+      atomicAdd(&mean[chan_idx], cache[0] / ((float)(spatial_dim * batch_sz)));
+    }
   }
 }
 
@@ -490,8 +502,10 @@ __global__ void conv_batch_stats_var_fwd_nonatomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    var[chan_idx] += cache[0] / ((float)(spatial_dim * (batch_sz - 1)));
+  if (chan_idx < chan_dim) {
+    if (threadIdx.x == 0) {
+      var[chan_idx] += cache[0] / ((float)(spatial_dim * (batch_sz - 1)));
+    }
   }
 }
 
@@ -531,8 +545,10 @@ __global__ void conv_batch_stats_var_fwd_atomic_f32_kernel(
     }
     __syncthreads();
   }
-  if (threadIdx.x == 0) {
-    atomicAdd(&var[chan_idx], cache[0] / ((float)(spatial_dim * (batch_sz - 1))));
+  if (chan_idx < chan_dim && round_start < round_stride) {
+    if (threadIdx.x == 0) {
+      atomicAdd(&var[chan_idx], cache[0] / ((float)(spatial_dim * (batch_sz - 1))));
+    }
   }
 }
 

@@ -771,7 +771,7 @@ impl AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<Ref
   }
 }
 
-impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f32>>>, ArrayData<DeviceArray1d<f32>>> {
+impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f32>>>, Rc<ArrayOp<DeviceArray1d<f32>>>, ArrayData<DeviceArray1d<f32>>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

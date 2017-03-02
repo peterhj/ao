@@ -867,19 +867,18 @@ impl<S> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<Ref
   }
 }
 
-pub struct BranchOp<Cond, In, Data> {
+pub struct BranchOp<Cond, On, Off, Data> {
   node_id:  NodeId,
   stack:    OperatorStack,
   cond:     Cond,
-  on_:      In,
-  off_:     In,
+  on_:      On,
+  off_:     Off,
   on:       Data,
   off:      Data,
   output:   Data,
 }
 
-//impl<In, Data> OutputOp for BranchOp<CopyConstant<bool>, In, Data> where BranchOp<CopyConstant<bool>, In, Data>: AutodiffOp, In: OutputData<Data=Data>, Data: OutputData {
-impl<Cond, In, Data> OutputOp for BranchOp<Cond, In, Data> where BranchOp<Cond, In, Data>: AutodiffOp, Data: OutputData {
+impl<Cond, On, Off, Data> OutputOp for BranchOp<Cond, On, Off, Data> where BranchOp<Cond, On, Off, Data>: AutodiffOp, Data: OutputData {
   type Data = Data;
 
   fn _data(&self) -> &Data {
@@ -2330,10 +2329,16 @@ pub trait BatchStatsOpExt {
 
 #[derive(Clone)]
 pub struct BatchStatsOutput<M> {
-  pub mean:     Rc<PassOp<M>>,
-  pub var:      Rc<PassOp<M>>,
-  pub mean_run: Rc<ArraySrc<M>>,
-  pub var_run:  Rc<ArraySrc<M>>,
+  pub mean:     Rc<ArrayOp<M>>,
+  pub var:      Rc<ArrayOp<M>>,
+  pub mean_run: Rc<ArrayOp<M>>,
+  pub var_run:  Rc<ArrayOp<M>>,
+}
+
+#[derive(Clone)]
+pub struct BatchStatsOutputNew<M> {
+  pub mean: Rc<BranchOp<CopyConstant<bool>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, M>>,
+  pub var:  Rc<BranchOp<CopyConstant<bool>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, M>>,
 }
 
 pub trait BatchStatsExt<Idx, A, M> where Idx: ArrayIndex {

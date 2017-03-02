@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) / 32)); })
+#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) & 31)); })
 
 __global__ void block_softmax_fwd(
     uint32_t block_dim,
@@ -26,9 +26,9 @@ __global__ void block_softmax_fwd(
     cache[OFFSET_BANK(tid)] = -CUDART_INF_F;
   }
   __syncthreads();
-  for (uint32_t s = 1; s < blockDim.x; s *= 2) {
+  for (uint32_t s = 1; s < 1024; s *= 2) {
     if (tid < block_dim && block < num_blocks) {
-      if (tid % (2*s) == 0 && (tid + s) < block_dim) {
+      if ((tid & (2 * s - 1)) == 0 && (tid + s) < block_dim) {
         if (cache[OFFSET_BANK(tid)] < cache[OFFSET_BANK(tid + s)]) {
           cache[OFFSET_BANK(tid)] = cache[OFFSET_BANK(tid + s)];
         }
@@ -47,9 +47,9 @@ __global__ void block_softmax_fwd(
     cache[OFFSET_BANK(tid)] = 0.0f;
   }
   __syncthreads();
-  for (uint32_t s = 1; s < blockDim.x; s *= 2) {
+  for (uint32_t s = 1; s < 1024; s *= 2) {
     if (tid < block_dim && block < num_blocks) {
-      if (tid % (2*s) == 0 && (tid + s) < block_dim) {
+      if ((tid & (2 * s - 1)) == 0 && (tid + s) < block_dim) {
         cache[OFFSET_BANK(tid)] += cache[OFFSET_BANK(tid + s)];
       }
     }
