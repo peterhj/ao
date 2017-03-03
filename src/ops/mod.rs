@@ -21,88 +21,88 @@ use std::rc::{Rc, Weak};
 //const VEC_F32_TYPEID: TypeId = TypeId::of::<Vec<f32>>();
 
 pub trait LoadFromMemory {
-  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool;
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> usize;
 }
 
 pub trait StoreToMemory {
-  fn store_to_memory(src: &Self, writer: &mut Any) -> bool;
+  fn store_to_memory(src: &Self, writer: &mut Any) -> usize;
 }
 
 impl LoadFromMemory for Array1d<f32> {
-  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> usize {
     if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = dst.dim();
       let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       dst.as_view_mut().copy(reader.read_buf(buf_len).flatten());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl StoreToMemory for Array1d<f32> {
-  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> usize {
     if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = src.dim();
       let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       writer.write_buf(buf_len).flatten_mut().copy(src.as_view());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl LoadFromMemory for Array2d<f32> {
-  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> usize {
     if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = dst.dim().flat_len();
       let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       dst.as_view_mut().flatten_mut().copy(reader.read_buf(buf_len).flatten());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl StoreToMemory for Array2d<f32> {
-  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> usize {
     if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = src.dim().flat_len();
       let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       writer.write_buf(buf_len).flatten_mut().copy(src.as_view().flatten());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl LoadFromMemory for Array4d<f32> {
-  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> usize {
     if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = dst.dim().flat_len();
       let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       dst.as_view_mut().flatten_mut().copy(reader.read_buf(buf_len).flatten());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl StoreToMemory for Array4d<f32> {
-  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> usize {
     if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = src.dim().flat_len();
       let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       writer.write_buf(buf_len).flatten_mut().copy(src.as_view().flatten());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
@@ -192,7 +192,7 @@ impl<A> ArrayOp<A> for ArraySrc<A> where ArraySrc<A>: AutodiffOp {
 }
 
 impl AutodiffOp for ArraySrc<f32> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
@@ -205,10 +205,13 @@ impl AutodiffOp for ArraySrc<f32> {
           unimplemented!();
         }*/
       }
+      unimplemented!();
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
@@ -219,10 +222,13 @@ impl AutodiffOp for ArraySrc<f32> {
       } else {
         unimplemented!();
       }*/
+      unimplemented!();
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
       /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
@@ -233,6 +239,9 @@ impl AutodiffOp for ArraySrc<f32> {
       } else {
         unimplemented!();
       }*/
+      unimplemented!();
+    } else {
+      0
     }
   }
 
@@ -286,7 +295,7 @@ impl AutodiffOp for ArraySrc<f32> {
 }
 
 impl AutodiffOp for ArraySrc<Batch<u32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
@@ -299,10 +308,13 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
           unimplemented!();
         }*/
       }
+      unimplemented!();
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
@@ -313,10 +325,13 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
       } else {
         unimplemented!();
       }*/
+      unimplemented!();
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
       /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
@@ -327,6 +342,9 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
       } else {
         unimplemented!();
       }*/
+      unimplemented!();
+    } else {
+      0
     }
   }
 
@@ -381,49 +399,34 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
 }
 
 impl AutodiffOp for ArraySrc<Array1d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
-      /*if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-        let val_len = val.dim();
-        let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-        val.as_view_mut().copy(reader.read_buf(val_len).flatten());
-      } else {
-        unimplemented!();
-      }*/
-      assert!(LoadFromMemory::load_from_memory(&mut *val, reader));
+      LoadFromMemory::load_from_memory(&mut *val, reader)
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      let mut val = self.data.val.get(txn, node);
-      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-        let val_len = val.dim();
-        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-        writer.write_buf(val_len).flatten_mut().copy(val.as_view());
-      } else {
-        unimplemented!();
-      }*/
-      assert!(StoreToMemory::store_to_memory(&*val, writer));
+      let val = self.data.val.get(txn, node);
+      StoreToMemory::store_to_memory(&*val, writer)
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
-      let mut grad = self.data.grad.get(txn, node);
-      /*if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-        let grad_len = grad.dim();
-        let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-        writer.write_buf(grad_len).flatten_mut().copy(grad.as_view());
-      } else {
-        unimplemented!();
-      }*/
-      assert!(StoreToMemory::store_to_memory(&*grad, writer));
+      let grad = self.data.grad.get(txn, node);
+      StoreToMemory::store_to_memory(&*grad, writer)
+    } else {
+      0
     }
   }
 
@@ -483,19 +486,21 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
 }*/
 
 impl AutodiffOp for ArraySrc<Array2d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-          let mut val = self.data.val.get_excl(txn, node);
-          let val_len = val.dim().flat_len();
-          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-          val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
-        } else {
-          unimplemented!();
-        }
+      assert!(self.data.val.overwrite(txn, node));
+      if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+        let mut val = self.data.val.get_excl(txn, node);
+        let val_len = val.dim().flat_len();
+        let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
+        val.dim().flat_len()
+      } else {
+        unimplemented!();
       }
+    } else {
+      0
     }
   }
 
@@ -555,19 +560,21 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
 }*/
 
 impl AutodiffOp for ArraySrc<Array4d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
-      if self.data.val.overwrite(txn, node) {
-        if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
-          let mut val = self.data.val.get_excl(txn, node);
-          let val_len = val.dim().flat_len();
-          let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
-          val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
-        } else {
-          unimplemented!();
-        }
+      assert!(self.data.val.overwrite(txn, node));
+      if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
+        let mut val = self.data.val.get_excl(txn, node);
+        let val_len = val.dim().flat_len();
+        let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
+        val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten());
+        val.dim().flat_len()
+      } else {
+        unimplemented!();
       }
+    } else {
+      0
     }
   }
 
@@ -2717,15 +2724,16 @@ pub struct ArraySink<Op, A> where Op: ArrayOp<A> {
   _m:   PhantomData<A>,
 }
 
-impl<Op, A> Deref for ArraySink<Op, A> where Op: ArrayOp<A> {
+/*(impl<Op, A> Deref for ArraySink<Op, A> where Op: ArrayOp<A> {
   type Target = Op;
 
   fn deref(&self) -> &Op {
     &*self.x_
   }
-}
+}*/
 
-impl<Op> AutodiffSink<Op> for ArraySink<Op, f32> where Op: ArrayOp<f32> {
+//impl<Op> AutodiffSink<Op> for ArraySink<Op, f32> where Op: ArrayOp<f32> {
+impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: ArrayOp<f32> {
   fn _op(&self) -> &AutodiffOp {
     &*self.x_
   }

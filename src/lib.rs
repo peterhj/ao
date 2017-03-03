@@ -284,14 +284,12 @@ pub trait AutodiffOp {
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
 
   fn _serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize { 0 }
-  fn _load(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {}
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {}
-  fn _load_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {}
-  fn _store(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {}
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {}
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {}
-  fn _store_r_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {}
-  fn _store_grad2(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {}
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize { 0 }
+  fn _load_r_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize { 0 }
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
+  fn _store_r_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
+  fn _store_grad2(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
   fn _rollover(&self, txn: TxnId, vars: &mut VarSet);
 
   fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {}
@@ -318,58 +316,82 @@ pub trait AutodiffOp {
     size
   }
 
-  fn load_serial_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) {
+  fn load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     reader.reset();
+    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._load_val(txn, vars, reader.as_any()); });
+    self._pop(epoch, &mut |op| {
+      offset += op._load_val(txn, vars, offset, reader.as_any());
+    });
     vars.unmask_all();
+    offset
   }
 
-  fn load_serial_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) {
+  fn load_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     reader.reset();
+    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._load_r_val(txn, vars, reader.as_any()); });
+    self._pop(epoch, &mut |op| {
+      offset += op._load_r_val(txn, vars, offset, reader.as_any());
+    });
     vars.unmask_all();
+    offset
   }
 
-  fn store_serial_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
+  fn store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
+    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store_val(txn, vars, writer.as_any()); });
+    self._pop(epoch, &mut |op| {
+      offset += op._store_val(txn, vars, offset, writer.as_any());
+    });
     vars.unmask_all();
+    offset
   }
 
-  fn store_serial_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
+  fn store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
+    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store_grad(txn, vars, writer.as_any()); });
+    self._pop(epoch, &mut |op| {
+      offset += op._store_grad(txn, vars, offset, writer.as_any());
+    });
     vars.unmask_all();
+    offset
   }
 
-  fn store_serial_r_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
+  fn store_r_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
+    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store_r_grad(txn, vars, writer.as_any()); });
+    self._pop(epoch, &mut |op| {
+      offset += op._store_r_grad(txn, vars, offset, writer.as_any());
+    });
     vars.unmask_all();
+    offset
   }
 
-  fn store_serial_grad2(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) {
+  fn store_grad2(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
+    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._store_grad2(txn, vars, writer.as_any()); });
+    self._pop(epoch, &mut |op| {
+      offset += op._store_grad2(txn, vars, offset, writer.as_any());
+    });
     vars.unmask_all();
+    offset
   }
 
   fn init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
@@ -414,7 +436,8 @@ pub trait AutodiffOp {
   }
 }
 
-pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
+//pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
+pub trait AutodiffSink: AutodiffOp {
   fn _op(&self) -> &AutodiffOp;
   fn _set_source(&self, txn: TxnId);
 
@@ -463,6 +486,48 @@ pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
   }
 }
 
+impl<Op> AutodiffOp for Op where Op: AutodiffSink {
+  default fn _id(&self) -> NodeId {
+    self._op()._id()
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    self._op()._push(epoch, apply);
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    self._op()._pop(epoch, apply);
+  }
+
+  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+    self._op()._rollover(txn, vars);
+  }
+
+  default fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
+    self._op()._init(txn, seed_rng);
+  }
+
+  default fn _forward(&self, txn: TxnId) {
+    self._op()._forward(txn);
+  }
+
+  default fn _backward(&self, txn: TxnId, gauss_newton: bool) {
+    self._op()._backward(txn, gauss_newton);
+  }
+
+  default fn _r_forward(&self, txn: TxnId, gauss_newton: bool) {
+    self._op()._r_forward(txn, gauss_newton);
+  }
+
+  default fn _r_backward(&self, txn: TxnId) {
+    self._op()._r_backward(txn);
+  }
+
+  default fn _backward2(&self, txn: TxnId) {
+    self._op()._backward2(txn);
+  }
+}
+
 pub trait OutputData: Clone {
   fn vars(&self) -> VarSet;
 }
@@ -507,6 +572,7 @@ pub trait SerialIoBuf: Any {
 }
 
 pub struct ZeroIo;
+pub struct MaxCapacityIo;
 
 impl SerialIoBuf for ZeroIo {
   fn reset(&mut self) {
@@ -607,6 +673,7 @@ impl BatchArrayStorage<usize> for Vec<f32> {
 pub struct ArrayVarBuf<A> {
   clk:          usize,
   curr_txn:     Cell<Option<TxnId>>,
+  rollover:     Cell<bool>,
   reads:        RefCell<FnvHashSet<NodeId>>,
   writes:       RefCell<FnvHashMap<NodeId, Symbol>>,
   read_writes:  RefCell<FnvHashSet<(NodeId, Symbol)>>,
@@ -619,6 +686,7 @@ impl<A> ArrayVarBuf<A> {
     ArrayVarBuf{
       clk:          clk,
       curr_txn:     Cell::new(None),
+      rollover:     Cell::new(false),
       reads:        RefCell::new(FnvHashSet::default()),
       writes:       RefCell::new(FnvHashMap::default()),
       read_writes:  RefCell::new(FnvHashSet::default()),
@@ -684,6 +752,7 @@ impl<A> ArrayVar<A> {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
     buf.curr_txn.set(None);
+    buf.rollover.set(false);
     buf.reads.borrow_mut().clear();
     buf.writes.borrow_mut().clear();
     buf.read_writes.borrow_mut().clear();
@@ -702,6 +771,7 @@ impl<A> ArrayVar<A> {
             // Do nothing.
           } else {
             buf.curr_txn.set(Some(txn));
+            buf.rollover.set(true);
             buf.reads.borrow_mut().clear();
             buf.writes.borrow_mut().clear();
             buf.read_writes.borrow_mut().clear();
@@ -710,6 +780,7 @@ impl<A> ArrayVar<A> {
         }
         None => {
           buf.curr_txn.set(Some(txn));
+          buf.rollover.set(true);
           buf.reads.borrow_mut().clear();
           buf.writes.borrow_mut().clear();
           buf.read_writes.borrow_mut().clear();
@@ -718,6 +789,7 @@ impl<A> ArrayVar<A> {
       }
     } else {
       buf.curr_txn.set(None);
+      buf.rollover.set(false);
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
@@ -751,9 +823,10 @@ impl<A> ArrayVar<A> {
         incomplete_write = !written;
       }
     }
-    if new_txn {
+    if new_txn || buf.rollover.get() {
       assert!(incomplete_write);
       buf.curr_txn.set(Some(txn));
+      buf.rollover.set(false);
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
@@ -762,7 +835,6 @@ impl<A> ArrayVar<A> {
       if buffer.is_none() {
         *buffer = Some((self.alloc)(txn, node));
       }
-      //init(&mut *buffer.as_mut().unwrap());
     }
     incomplete_write
   }
@@ -796,7 +868,7 @@ impl<A> ArrayVar<A> {
         incomplete_write = !rw;
       }
     }
-    if new_txn {
+    if new_txn || buf.rollover.get() {
       assert!(incomplete_write);
       buf.curr_txn.set(Some(txn));
       buf.reads.borrow_mut().clear();
@@ -807,7 +879,10 @@ impl<A> ArrayVar<A> {
       if buffer.is_none() {
         *buffer = Some((self.alloc)(txn, node));
       }
-      init(&mut *buffer.as_mut().unwrap());
+      if !buf.rollover.get() {
+        init(&mut *buffer.as_mut().unwrap());
+      }
+      buf.rollover.set(false);
     }
     incomplete_write
   }
@@ -840,6 +915,9 @@ impl<A> ArrayVar<A> {
     assert!(!new_txn);
     // FIXME(20170216): may need to record the current clock in
     // read/write events.
+    if buf.rollover.get() {
+      buf.rollover.set(false);
+    }
     assert!(!buf.writes.borrow().contains_key(&node));
     assert!(!buf.coarse_rws.borrow().contains(&node));
     buf.reads.borrow_mut().insert(node);
@@ -876,6 +954,7 @@ impl<A> ArrayVar<A> {
       buf.coarse_rws.borrow_mut().clear();
     }*/
     assert!(!new_txn);
+    assert!(!buf.rollover.get());
     assert!(!buf.reads.borrow().contains(&node));
     assert!(!buf.coarse_rws.borrow().contains(&node));
     if buf.writes.borrow().contains_key(&node) {
@@ -914,6 +993,7 @@ impl<A> ArrayVar<A> {
       buf.coarse_rws.borrow_mut().clear();
     }*/
     assert!(!new_txn);
+    assert!(!buf.rollover.get());
     assert!(!buf.reads.borrow().contains(&node));
     assert!(!buf.writes.borrow().contains_key(&node));
     let rw = buf.read_writes.borrow().contains(&(node, self.symbol));

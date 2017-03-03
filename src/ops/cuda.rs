@@ -18,68 +18,68 @@ use std::rc::{Rc};
 use std::sync::{Arc};
 
 pub trait LoadFromDevMemory {
-  fn load_from_dev_memory(dst: &mut Self, reader: &mut Any) -> bool;
+  fn load_from_dev_memory(dst: &mut Self, reader: &mut Any) -> usize;
 }
 
 pub trait StoreToDevMemory {
-  fn store_to_dev_memory(src: &Self, writer: &mut Any) -> bool;
+  fn store_to_dev_memory(src: &Self, writer: &mut Any) -> usize;
 }
 
 impl LoadFromMemory for DeviceArray1d<f32> {
-  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> usize {
     if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = dst.dim();
       let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       dst.as_view_mut().load_sync(reader.read_buf(buf_len).flatten(), DeviceStream::implicit().conn());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl StoreToMemory for DeviceArray1d<f32> {
-  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> usize {
     if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = src.dim();
       let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       src.as_view().store_sync(writer.write_buf(buf_len).flatten_mut(), DeviceStream::implicit().conn());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl LoadFromMemory for DeviceArray2d<f32> {
-  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> bool {
+  fn load_from_memory(dst: &mut Self, reader: &mut Any) -> usize {
     if reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = dst.dim().flat_len();
       let reader = reader.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       dst.as_view_mut().flatten_mut().load_sync(reader.read_buf(buf_len).flatten(), DeviceStream::implicit().conn());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
 impl LoadFromDevMemory for DeviceArray2d<f32> {
-  fn load_from_dev_memory(dst: &mut Self, reader: &mut Any) -> bool {
+  fn load_from_dev_memory(dst: &mut Self, reader: &mut Any) -> usize {
     unimplemented!();
   }
 }
 
 impl StoreToMemory for DeviceArray2d<f32> {
-  fn store_to_memory(src: &Self, writer: &mut Any) -> bool {
+  fn store_to_memory(src: &Self, writer: &mut Any) -> usize {
     if writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().is_some() {
       let buf_len = src.dim().flat_len();
       let writer = writer.downcast_mut::<CursorIoBuf<Vec<f32>>>().unwrap();
       src.as_view().flatten().store_sync(writer.write_buf(buf_len).flatten_mut(), DeviceStream::implicit().conn());
+      buf_len
     } else {
-      return false;
+      0
     }
-    true
   }
 }
 
@@ -109,7 +109,18 @@ impl<'a, T> CursorIoBufExt<'a> for CursorIoBuf<DeviceMem<T>> where T: 'a + Copy 
 }*/
 
 impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  /*fn _serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      //let buf_len = self.data.val.get(txn, node).dim().flat_len();
+      let batch_sz = self.data.val.get(txn, node).batch_size();
+      batch_sz
+    } else {
+      0
+    }
+  }*/
+
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -119,13 +130,16 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
         let batch_sz = src_buf.len();
         val.set_batch_size(batch_sz);
         val.load(&*src_buf, DeviceStream::implicit().conn());
+        batch_sz
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       let val = self.data.val.get(txn, node);
@@ -134,16 +148,21 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
         let batch_sz = val.batch_size();
         assert_eq!(batch_sz, dst_buf.len());
         val.as_ref().store_sync(&mut *dst_buf, DeviceStream::implicit().conn());
+        batch_sz
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       unimplemented!();
+    } else {
+      0
     }
   }
 
@@ -207,7 +226,7 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
 }*/
 
 impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -219,28 +238,37 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
         for idx in 0 .. batch_sz {
           val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
         }
+        val.stride() * val.batch_size()
         /*let mut tmp = Vec::with_capacity(val.stride());
         tmp.resize(val.stride(), 0);
         val[0].as_ref().store_sync(&mut tmp, DeviceStream::implicit().conn());
         println!("DEBUG: DeviceBatchIoMem input: {:?} readback: {:?}", &src_bufs[0][290 .. 295], &tmp[290 .. 295]);*/
-      /*} else if reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().is_some() {
-        let &mut (ref batch_idx, ref batch_sz, ref src_mem) = reader.downcast_mut::<(usize, usize, Arc<Deref<Target=[u8]>>)>().unwrap();
-        let mut val = self.data.val.get_mut(txn, node);
-        let val_len = val.stride();
-        val.set_batch_size(*batch_sz, &*DeviceStream::implicit());
-        val.load(*batch_idx, &**src_mem, DeviceStream::implicit().conn());*/
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
-    //unimplemented!();
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      // TODO
+      unimplemented!();
+    } else {
+      0
+    }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
-    //unimplemented!();
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      // TODO
+      unimplemented!();
+    } else {
+      0
+    }
   }
 
   fn _id(&self) -> NodeId {
@@ -298,7 +326,7 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
 }
 
 impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -314,10 +342,12 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
       } else {
         unimplemented!();
       }*/
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       let val = self.data.val.get_excl(txn, node);
@@ -328,15 +358,23 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
         val.as_view().store_sync(dst_buf.reshape_mut((x_dim, batch_sz)), DeviceStream::implicit().conn());
         //println!("DEBUG: PassOp: storing value: {:?}", val.as_view().dim());
         //dst_buf.reshape_mut((x_dim, batch_sz)).set_constant(3.14);
-        DeviceStream::implicit().conn().sync();
+        //DeviceStream::implicit().conn().sync();
+        x_dim * batch_sz
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
-    //unimplemented!();
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.contains(&self.data.val.var()) {
+      unimplemented!();
+    } else {
+      0
+    }
   }
 
   fn _id(&self) -> NodeId {
@@ -386,7 +424,7 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
 }*/
 
 impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -402,11 +440,13 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
       } else {
         unimplemented!();
       }*/
-      assert!(LoadFromMemory::load_from_memory(&mut *val, reader));
+      LoadFromMemory::load_from_memory(&mut *val, reader)
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       let val = self.data.val.get_excl(txn, node);
@@ -421,11 +461,13 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
       } else {
         unimplemented!();
       }*/
-      assert!(StoreToMemory::store_to_memory(&*val, writer));
+      StoreToMemory::store_to_memory(&*val, writer)
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
       let grad = self.data.grad.get(txn, node);
@@ -440,7 +482,9 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
       } else {
         unimplemented!();
       }*/
-      assert!(StoreToMemory::store_to_memory(&*grad, writer));
+      StoreToMemory::store_to_memory(&*grad, writer)
+    } else {
+      0
     }
   }
 
@@ -496,7 +540,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
 }*/
 
 impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -512,14 +556,19 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
       } else {
         unimplemented!();
       }*/
-      assert!(
-          LoadFromMemory::load_from_memory(&mut *val, reader) ||
-          LoadFromDevMemory::load_from_dev_memory(&mut *val, reader)
-      );
+      let offset = LoadFromMemory::load_from_memory(&mut *val, reader);
+      if offset > 0 {
+        return offset;
+      }
+      let offset = LoadFromDevMemory::load_from_dev_memory(&mut *val, reader);
+      if offset > 0 {
+        return offset;
+      }
     }
+    0
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       let val = self.data.val.get_excl(txn, node);
@@ -534,11 +583,13 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
       } else {
         unimplemented!();
       }*/
-      assert!(StoreToMemory::store_to_memory(&*val, writer));
+      StoreToMemory::store_to_memory(&*val, writer)
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
       let grad = self.data.grad.get(txn, node);
@@ -549,7 +600,9 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
       } else {
         unimplemented!();
       }*/
-      assert!(StoreToMemory::store_to_memory(&*grad, writer));
+      StoreToMemory::store_to_memory(&*grad, writer)
+    } else {
+      0
     }
   }
 
@@ -605,7 +658,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
 }*/
 
 impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut Any) {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -614,13 +667,16 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
         let val_len = val.dim().flat_len();
         let reader = reader.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         val.as_view_mut().flatten_mut().copy(reader.read_buf(val_len).flatten(), DeviceStream::implicit().conn());
+        val_len
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.val.var()) {
       let val = self.data.val.get_excl(txn, node);
@@ -628,13 +684,16 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
         let val_len = val.dim().flat_len();
         let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(val_len).flatten_mut().copy(val.as_view().flatten(), DeviceStream::implicit().conn());
+        val_len
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut Any) {
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.contains(&self.data.grad.var()) {
       let grad = self.data.grad.get(txn, node);
@@ -642,9 +701,12 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
         let grad_len = grad.dim().flat_len();
         let writer = writer.downcast_mut::<CursorIoBuf<DeviceMem<f32>>>().unwrap();
         writer.write_buf(grad_len).flatten_mut().copy(grad.as_view().flatten(), DeviceStream::implicit().conn());
+        grad_len
       } else {
         unimplemented!();
       }
+    } else {
+      0
     }
   }
 
@@ -2206,18 +2268,16 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
     let batch_sz = self.x.val.get(txn, node).batch_size();
     // FIXME: does not account for non-uniform batch sizes.
     let n = (state.batch_ct + 1) as f32;
-    // TODO(20170228)
-    //unimplemented!();
-    /*//self.mean_acc.val.rollover(txn, self.mean_acc.val.var()); // FIXME
-    if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
+    self.mean_acc.val.rollover(txn, &mut self.mean_acc.val.var().singleton());
+    if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       assert!(!self.mean.val.overwrite(txn, node));
-      self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_excl(txn, node).as_view());
+      self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_excl(txn, node).as_view(), DeviceStream::implicit().conn());
     }
-    //self.var_acc.val.rollover(txn, self.var_acc.val.var()); // FIXME
-    if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0)) {
+    self.var_acc.val.rollover(txn, &mut self.var_acc.val.var().singleton());
+    if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       assert!(!self.var.val.overwrite(txn, node));
-      self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_excl(txn, node).as_view());
-    }*/
+      self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_excl(txn, node).as_view(), DeviceStream::implicit().conn());
+    }
     state.batch_ct += 1;
   }
 
@@ -2248,6 +2308,10 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
         self.var_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
       }
     }*/
+    self.mean_acc.val.rollover(next_txn, &mut self.mean_acc.val.var().singleton());
+    self.mean_run.val.rollover(next_txn, &mut self.mean_run.val.var().singleton());
+    self.var_acc.val.rollover(next_txn, &mut self.var_acc.val.var().singleton());
+    self.var_run.val.rollover(next_txn, &mut self.var_run.val.var().singleton());
     state.batch_ct = 0;
     state.update_ct += 1;
   }
@@ -2387,7 +2451,8 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
   }
 }
 
-impl<Op> AutodiffSink<Op> for ArraySink<Op, DeviceMem<f32>> where Op: ArrayOp<DeviceMem<f32>> {
+//impl<Op> AutodiffSink<Op> for ArraySink<Op, DeviceMem<f32>> where Op: ArrayOp<DeviceMem<f32>> {
+impl<Op> AutodiffSink for ArraySink<Op, DeviceMem<f32>> where Op: ArrayOp<DeviceMem<f32>> {
   fn _op(&self) -> &AutodiffOp {
     &*self.x_
   }
