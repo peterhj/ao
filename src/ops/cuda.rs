@@ -2173,9 +2173,9 @@ impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, Cud
 }
 
 impl<Op> BatchStatsExt<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray3d<f32>> {
-  fn batch_stats(reduce_axes: Axes<(usize, usize)>, cfg: BatchStatsConfig, x_: Rc<Op>) -> BatchStatsOutput<DeviceArray1d<f32>> {
+  fn batch_stats(reduce_axes: Axes<(usize, usize)>, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Rc<Op>) -> BatchStatsOutput<DeviceArray1d<f32>> {
     let clk_horizon = x_._data().horizon();
-    BatchStatsOp::<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>>::new(reduce_axes, cfg, x_.clone(), clk_horizon, {
+    BatchStatsOp::<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>>::new(reduce_axes, cfg, ctrl, x_.clone(), clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();

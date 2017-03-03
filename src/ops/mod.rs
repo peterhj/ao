@@ -2288,6 +2288,10 @@ pub struct BatchStatsControl {
 }
 
 impl BatchStatsControl {
+  pub fn new() -> Self {
+    BatchStatsControl{ops: vec![]}
+  }
+
   pub fn configure(&self, f: &Fn(&mut BatchStatsConfig)) {
     for op in self.ops.iter() {
       op._configure(f);
@@ -2342,11 +2346,11 @@ pub struct BatchStatsOutputNew<M> {
 }
 
 pub trait BatchStatsExt<Idx, A, M> where Idx: ArrayIndex {
-  fn batch_stats(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, x_: Self) -> BatchStatsOutput<M> where Self: Sized;
+  fn batch_stats(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Self) -> BatchStatsOutput<M> where Self: Sized;
 }
 
-pub fn batch_stats<Op, Idx, A, M>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, x_: Rc<Op>) -> BatchStatsOutput<M> where Rc<Op>: BatchStatsExt<Idx, A, M>, Op: 'static + ArrayOp<A>, Idx: ArrayIndex {
-  <Rc<Op> as BatchStatsExt<Idx, A, M>>::batch_stats(reduce_axes, cfg, x_)
+pub fn batch_stats<Op, Idx, A, M>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Rc<Op>) -> BatchStatsOutput<M> where Rc<Op>: BatchStatsExt<Idx, A, M>, Op: 'static + ArrayOp<A>, Idx: ArrayIndex {
+  <Rc<Op> as BatchStatsExt<Idx, A, M>>::batch_stats(reduce_axes, cfg, ctrl, x_)
 }
 
 pub struct BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
@@ -2369,8 +2373,8 @@ pub struct BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
   var_run:      ArrayData<M>,
 }
 
-impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffOp, ArraySrc<M>: AutodiffOp, Idx: 'static + ArrayIndex, A: 'static, M: 'static {
-  pub fn new<Op>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, x_: Rc<Op>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> M>) -> BatchStatsOutput<M> where Op: 'static + ArrayOp<A> {
+impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffOp + BatchStatsOpExt, ArraySrc<M>: AutodiffOp, Idx: 'static + ArrayIndex, A: 'static, M: 'static {
+  pub fn new<Op>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Rc<Op>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> M>) -> BatchStatsOutput<M> where Op: 'static + ArrayOp<A> {
     let node = NodeId::new();
     let x = x_.data();
     let mean = ArrayData::new(clk_horizon, alloc.clone());
@@ -2407,6 +2411,7 @@ impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffO
     });
     *mean_.x_.borrow_mut() = Some(AutodiffOp::from(op.clone()));
     *var_.x_.borrow_mut() = Some(AutodiffOp::from(op.clone()));
+    ctrl.ops.push(op);
     BatchStatsOutput{
       mean:     mean_,
       var:      var_,

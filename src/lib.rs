@@ -787,7 +787,12 @@ impl<A> ArrayVar<A> {
         assert!(!buf.writes.borrow().contains_key(&node));
         let rw = buf.read_writes.borrow().contains(&(node, self.symbol));
         let coarse_rw = buf.coarse_rws.borrow().contains(&node);
-        assert_eq!(rw, coarse_rw);
+        if !coarse_rw {
+          assert!(!rw);
+        }
+        if rw {
+          assert!(coarse_rw);
+        }
         incomplete_write = !rw;
       }
     }
@@ -913,8 +918,12 @@ impl<A> ArrayVar<A> {
     assert!(!buf.writes.borrow().contains_key(&node));
     let rw = buf.read_writes.borrow().contains(&(node, self.symbol));
     let coarse_rw = buf.coarse_rws.borrow().contains(&node);
-    assert_eq!(rw, coarse_rw);
-    if !rw {
+    if !coarse_rw {
+      assert!(!rw);
+    }
+    if rw {
+      assert!(coarse_rw);
+    } else {
       buf.read_writes.borrow_mut().insert((node, self.symbol));
       buf.coarse_rws.borrow_mut().insert(node);
     }
