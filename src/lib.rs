@@ -269,12 +269,19 @@ impl VarSet {
     self.mask.clear();
   }
 
-  pub fn mask(&mut self, var: Var) {
-    self.mask.insert(var);
+  pub fn mask(&mut self, var: Var) -> bool {
+    let contained = self.inner.contains(&var);
+    if contained {
+      let masked = self.mask.contains(&var);
+      self.mask.insert(var);
+      !masked
+    } else {
+      false
+    }
   }
 
-  pub fn is_masked(&mut self, var: &Var) -> bool {
-    self.mask.contains(var)
+  pub fn is_unmasked(&mut self, var: &Var) -> bool {
+    !self.mask.contains(var)
   }
 }
 
@@ -283,24 +290,24 @@ pub trait AutodiffOp {
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
 
-  fn _serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize { 0 }
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize { 0 }
-  fn _load_r_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize { 0 }
-  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
-  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
-  fn _store_r_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
-  fn _store_grad2(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize { 0 }
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet);
+  fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { 0 }
+  fn _load_val(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _reader: &mut Any) -> usize { 0 }
+  fn _load_r_val(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _reader: &mut Any) -> usize { 0 }
+  fn _store_val(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
+  fn _store_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
+  fn _store_r_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
+  fn _store_grad2(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
+  fn _rollover(&self, _txn: TxnId, _vars: &mut VarSet) {}
 
-  fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {}
+  fn _init(&self, _txn: TxnId, _seed_rng: Rc<RefCell<ChaChaRng>>) {}
   fn _forward(&self, txn: TxnId);
-  fn _backward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
-  fn _r_forward(&self, txn: TxnId, gauss_newton: bool) { unimplemented!(); }
-  fn _r_backward(&self, txn: TxnId) { unimplemented!(); }
-  fn _backward2(&self, txn: TxnId) { unimplemented!(); }
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) { unimplemented!(); }
+  fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) { unimplemented!(); }
+  fn _r_backward(&self, _txn: TxnId) { unimplemented!(); }
+  fn _backward2(&self, _txn: TxnId) { unimplemented!(); }
 
   fn _reset_clock(&self) {}
-  fn _set_clock(&self, clk: usize) { unimplemented!(); }
+  fn _set_clock(&self, _clk: usize) { unimplemented!(); }
 
   fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op }
   fn from_shared(op: Arc<Self>) -> Arc<AutodiffOp> where Self: 'static + Sized { op }
@@ -316,24 +323,22 @@ pub trait AutodiffOp {
     size
   }
 
-  fn load_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) -> usize {
+  fn load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
-    reader.reset();
-    let mut offset = 0;
+    //reader.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._load_val(txn, vars, offset, reader.as_any());
+      offset += op._load_val(txn, vars, offset, reader);
     });
     vars.unmask_all();
     offset
   }
 
-  fn load_r_val(&self, txn: TxnId, vars: &mut VarSet, reader: &mut SerialIoBuf) -> usize {
+  fn load_r_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     reader.reset();
-    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
       offset += op._load_r_val(txn, vars, offset, reader.as_any());
@@ -342,37 +347,34 @@ pub trait AutodiffOp {
     offset
   }
 
-  fn store_val(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
+  fn store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
-    writer.reset();
-    let mut offset = 0;
+    //writer.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_val(txn, vars, offset, writer.as_any());
+      offset += op._store_val(txn, vars, offset, writer);
     });
     vars.unmask_all();
     offset
   }
 
-  fn store_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
+  fn store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
-    writer.reset();
-    let mut offset = 0;
+    //writer.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_grad(txn, vars, offset, writer.as_any());
+      offset += op._store_grad(txn, vars, offset, writer);
     });
     vars.unmask_all();
     offset
   }
 
-  fn store_r_grad(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
+  fn store_r_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
-    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
       offset += op._store_r_grad(txn, vars, offset, writer.as_any());
@@ -381,11 +383,10 @@ pub trait AutodiffOp {
     offset
   }
 
-  fn store_grad2(&self, txn: TxnId, vars: &mut VarSet, writer: &mut SerialIoBuf) -> usize {
+  fn store_grad2(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
-    let mut offset = 0;
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
       offset += op._store_grad2(txn, vars, offset, writer.as_any());
@@ -1095,6 +1096,25 @@ impl<A> ArrayData<A> {
     self.r_grad.rollover(txn, vars);
     self.grad2.rollover(txn, vars);
   }
+}
+
+pub fn master_rng() -> (ChaChaRng, Vec<u32>) {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(thread_rng().next_u32());
+  }
+  assert_eq!(8, seed.len());
+  let rng = ChaChaRng::from_seed(&seed);
+  (rng, seed)
+}
+
+pub fn spawn_rng(master_rng: &mut ChaChaRng) -> ChaChaRng {
+  let mut seed = Vec::with_capacity(8);
+  for _ in 0 .. 8 {
+    seed.push(master_rng.next_u32());
+  }
+  assert_eq!(8, seed.len());
+  ChaChaRng::from_seed(&seed)
 }
 
 pub fn init_master_rng() -> (Rc<RefCell<ChaChaRng>>, Vec<u32>) {
