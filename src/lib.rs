@@ -297,7 +297,7 @@ pub trait AutodiffOp {
   fn _store_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
   fn _store_r_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
   fn _store_grad2(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
-  fn _rollover(&self, _txn: TxnId, _vars: &mut VarSet) {}
+  fn _persist(&self, _txn: TxnId, _vars: &mut VarSet) {}
 
   fn _init(&self, _txn: TxnId, _seed_rng: Rc<RefCell<ChaChaRng>>) {}
   fn _forward(&self, txn: TxnId);
@@ -313,7 +313,7 @@ pub trait AutodiffOp {
   fn from_shared(op: Arc<Self>) -> Arc<AutodiffOp> where Self: 'static + Sized { op }
   fn from_owned(op: Box<Self>) -> Box<AutodiffOp> where Self: 'static + Sized { op }
 
-  fn serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
+  /*fn serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
     let epoch = Epoch::new(self._id());
     let mut size = 0;
     vars.unmask_all();
@@ -321,6 +321,18 @@ pub trait AutodiffOp {
     self._pop(epoch, &mut |op| { size += op._serial_size(txn, vars); });
     vars.unmask_all();
     size
+  }*/
+
+  fn val_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
+    let epoch = Epoch::new(self._id());
+    let mut offset = 0;
+    vars.unmask_all();
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| {
+      offset += op._store_val(txn, vars, 0, &mut NullIo);
+    });
+    vars.unmask_all();
+    offset
   }
 
   fn load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
@@ -404,17 +416,11 @@ pub trait AutodiffOp {
     });
   }
 
-  /*fn clear(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._push(epoch, &mut |op| { op._clear(txn); });
-    self._pop(epoch, &mut |_op| {});
-  }*/
-
-  fn rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn persist(&self, txn: TxnId, vars: &mut VarSet) {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._rollover(txn, vars); });
+    self._pop(epoch, &mut |op| { op._persist(txn, vars); });
     vars.unmask_all();
   }
 
@@ -500,8 +506,8 @@ impl<Op> AutodiffOp for Op where Op: AutodiffSink {
     self._op()._pop(epoch, apply);
   }
 
-  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
-    self._op()._rollover(txn, vars);
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self._op()._persist(txn, vars);
   }
 
   default fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
@@ -567,13 +573,14 @@ pub trait ArrayOp<A>: AutodiffOp {
   }
 }
 
+pub struct NullIo;
+pub struct ZeroIo;
+pub struct MaxCapacityIo;
+
 pub trait SerialIoBuf: Any {
   fn reset(&mut self);
   fn as_any(&mut self) -> &mut Any;
 }
-
-pub struct ZeroIo;
-pub struct MaxCapacityIo;
 
 impl SerialIoBuf for ZeroIo {
   fn reset(&mut self) {
@@ -671,8 +678,50 @@ impl BatchArrayStorage<usize> for Vec<f32> {
   }
 }
 
-pub struct ArrayVarBuf<A> {
-  clk:          usize,
+pub struct TxnCopyVar<A> where A: Copy {
+  // FIXME: clocked values.
+  curr_txn: Cell<Option<TxnId>>,
+  value:    Cell<Option<A>>,
+}
+
+impl<A> TxnCopyVar<A> where A: Copy {
+  pub fn get(&self, txn: TxnId) -> A {
+    match self.curr_txn.get() {
+      None => {
+        panic!();
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          panic!();
+        } else {
+          match self.value.get() {
+            None => panic!(),
+            Some(v) => v,
+          }
+        }
+      }
+    }
+  }
+
+  pub fn set(&self, txn: TxnId, new_value: A) {
+    match self.curr_txn.get() {
+      None => {
+        self.curr_txn.set(Some(txn));
+        self.value.set(Some(new_value));
+      }
+      Some(prev_txn) => {
+        if prev_txn != txn {
+          self.curr_txn.set(Some(txn));
+          self.value.set(Some(new_value));
+        } else {
+          assert_eq!(prev_txn, txn);
+        }
+      }
+    }
+  }
+}
+
+pub struct TxnVarBuf<A> {
   curr_txn:     Cell<Option<TxnId>>,
   rollover:     Cell<bool>,
   reads:        RefCell<FnvHashSet<NodeId>>,
@@ -682,10 +731,9 @@ pub struct ArrayVarBuf<A> {
   buffer:       RefCell<Option<A>>,
 }
 
-impl<A> ArrayVarBuf<A> {
-  pub fn new(clk: usize) -> Self {
-    ArrayVarBuf{
-      clk:          clk,
+impl<A> TxnVarBuf<A> {
+  pub fn new() -> Self {
+    TxnVarBuf{
       curr_txn:     Cell::new(None),
       rollover:     Cell::new(false),
       reads:        RefCell::new(FnvHashSet::default()),
@@ -697,25 +745,23 @@ impl<A> ArrayVarBuf<A> {
   }
 }
 
-pub struct ArrayVar<A> {
+pub struct TxnVar<A> {
   symbol:   Symbol,
   var:      Var,
-  kind:     VarKind,
   alloc:    Rc<Fn(TxnId, NodeId) -> A>,
   curr_clk: Rc<Cell<usize>>,
-  clk_bufs: Vec<Rc<ArrayVarBuf<A>>>,
+  clk_bufs: Vec<Rc<TxnVarBuf<A>>>,
 }
 
-impl<A> ArrayVar<A> {
+impl<A> TxnVar<A> {
   pub fn new(symbol: Symbol, kind: VarKind, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let mut clk_bufs = Vec::with_capacity(clk_horizon);
-    for clk in 0 .. clk_horizon {
-      clk_bufs.push(Rc::new(ArrayVarBuf::new(clk)));
+    for _ in 0 .. clk_horizon {
+      clk_bufs.push(Rc::new(TxnVarBuf::new()));
     }
-    ArrayVar{
+    TxnVar{
       symbol:   symbol,
       var:      Var::new(kind),
-      kind:     kind,
       alloc:    alloc,
       curr_clk: Rc::new(Cell::new(0)),
       clk_bufs: clk_bufs,
@@ -723,13 +769,12 @@ impl<A> ArrayVar<A> {
   }
 
   /// Clone this variable "by reference," but also assign it a unique symbol.
-  /// Each instance of the same `ArrayVar` should have a unique symbol in order
+  /// Each instance of the same `TxnVar` should have a unique symbol in order
   /// to distinguish different operands.
   pub fn dup(&self, new_symbol: Symbol) -> Self {
-    ArrayVar{
+    TxnVar{
       symbol:   new_symbol,
       var:      self.var.clone(),
-      kind:     self.kind,
       alloc:    self.alloc.clone(),
       curr_clk: self.curr_clk.clone(),
       clk_bufs: self.clk_bufs.clone(),
@@ -1021,12 +1066,12 @@ impl<A> ArrayVar<A> {
 pub struct ArrayData<A> {
   symbol:       Symbol,
   clk_horizon:  usize,
-  alloc:        Rc<Fn(TxnId, NodeId) -> A>,
-  pub val:      ArrayVar<A>,
-  pub grad:     ArrayVar<A>,
-  pub r_val:    ArrayVar<A>,
-  pub r_grad:   ArrayVar<A>,
-  pub grad2:    ArrayVar<A>,
+  //alloc:        Rc<Fn(TxnId, NodeId) -> A>,
+  pub val:      TxnVar<A>,
+  pub grad:     TxnVar<A>,
+  pub r_val:    TxnVar<A>,
+  pub r_grad:   TxnVar<A>,
+  pub grad2:    TxnVar<A>,
 }
 
 impl<A> Clone for ArrayData<A> {
@@ -1035,12 +1080,11 @@ impl<A> Clone for ArrayData<A> {
     ArrayData{
       symbol:       new_symbol,
       clk_horizon:  self.clk_horizon,
-      alloc:        self.alloc.clone(),
-      val:      self.val.dup(new_symbol),
-      grad:     self.grad.dup(new_symbol),
-      r_val:    self.r_val.dup(new_symbol),
-      r_grad:   self.r_grad.dup(new_symbol),
-      grad2:    self.grad2.dup(new_symbol),
+      val:          self.val.dup(new_symbol),
+      grad:         self.grad.dup(new_symbol),
+      r_val:        self.r_val.dup(new_symbol),
+      r_grad:       self.r_grad.dup(new_symbol),
+      grad2:        self.grad2.dup(new_symbol),
     }
   }
 }
@@ -1051,12 +1095,11 @@ impl<A> ArrayData<A> {
     ArrayData{
       symbol:       symbol,
       clk_horizon:  clk_horizon,
-      alloc:        alloc.clone(),
-      val:      ArrayVar::new(symbol, Val, clk_horizon, alloc.clone()),
-      grad:     ArrayVar::new(symbol, Grad, clk_horizon, alloc.clone()),
-      r_val:    ArrayVar::new(symbol, RVal, clk_horizon, alloc.clone()),
-      r_grad:   ArrayVar::new(symbol, RGrad, clk_horizon, alloc.clone()),
-      grad2:    ArrayVar::new(symbol, Grad2, clk_horizon, alloc.clone()),
+      val:      TxnVar::new(symbol, Val,    clk_horizon, alloc.clone()),
+      grad:     TxnVar::new(symbol, Grad,   clk_horizon, alloc.clone()),
+      r_val:    TxnVar::new(symbol, RVal,   clk_horizon, alloc.clone()),
+      r_grad:   TxnVar::new(symbol, RGrad,  clk_horizon, alloc.clone()),
+      grad2:    TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),
     }
   }
 

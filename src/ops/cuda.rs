@@ -17,30 +17,24 @@ use std::ops::{Deref};
 use std::rc::{Rc};
 use std::sync::{Arc};
 
-pub trait LoadFromDevMemory {
-  fn load_from_dev_memory(dst: &mut Self, offset: usize, reader: &mut Any) -> usize;
-}
-
-pub trait StoreToDevMemory {
-  fn store_to_dev_memory(src: &Self, offset: usize, writer: &mut Any) -> usize;
-}
-
-impl LoadFromMemory for DeviceArray1d<f32> {
-  fn load_from_memory(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
-    if reader.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = dst.dim();
+impl IoBuf for DeviceArray1d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.dim();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().load_sync(reader[offset .. offset + buf_len].flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
     }
     offset
   }
-}
 
-impl StoreToMemory for DeviceArray1d<f32> {
-  fn store_to_memory(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
-    if writer.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = src.dim();
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.dim();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       src.as_view().store_sync(writer[offset .. offset + buf_len].flatten_mut(), DeviceStream::implicit().conn());
       offset += buf_len;
@@ -49,30 +43,60 @@ impl StoreToMemory for DeviceArray1d<f32> {
   }
 }
 
-impl LoadFromMemory for DeviceArray2d<f32> {
-  fn load_from_memory(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
-    if reader.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = dst.dim().flat_len();
+impl IoBuf for DeviceArray2d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.dim().flat_len();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().flatten_mut().load_sync(reader[offset .. offset + buf_len].flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
     }
     offset
   }
-}
 
-impl LoadFromDevMemory for DeviceArray2d<f32> {
-  fn load_from_dev_memory(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
-    unimplemented!();
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.dim().flat_len();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
+      let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
+      src.as_view().flatten().store_sync(writer[offset .. offset + buf_len].flatten_mut(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    }
+    offset
   }
 }
 
-impl StoreToMemory for DeviceArray2d<f32> {
-  fn store_to_memory(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
-    if writer.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = src.dim().flat_len();
+impl IoBuf for DeviceArray4d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.dim().flat_len();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
+      let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
+      dst.as_view_mut().flatten_mut().load_sync(reader[offset .. offset + buf_len].flatten(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else if reader.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let reader = reader.downcast_mut::<DeviceMem<f32>>().unwrap();
+      dst.as_view_mut().flatten_mut().copy(reader.as_ref().slice(offset, offset + buf_len).flatten(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    }
+    offset
+  }
+
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.dim().flat_len();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       src.as_view().flatten().store_sync(writer[offset .. offset + buf_len].flatten_mut(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else if writer.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let writer = writer.downcast_mut::<DeviceMem<f32>>().unwrap();
+      writer.as_mut().slice_mut(offset, offset + buf_len).flatten_mut().copy(src.as_view().flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
     }
     offset
@@ -175,7 +199,7 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -277,7 +301,7 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -339,7 +363,7 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
-      let val = self.data.val.get_excl(txn, node);
+      let val = self.data.val.get(txn, node);
       if writer.downcast_mut::<Vec<f32>>().is_some() {
         let dst_buf = writer.downcast_mut::<Vec<f32>>().unwrap();
         let x_dim = val.dim();
@@ -384,7 +408,7 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -416,7 +440,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
-      offset = LoadFromMemory::load_from_memory(&mut *val, offset, reader);
+      offset = IoBuf::load(&mut *val, offset, reader);
     }
     offset
   }
@@ -424,8 +448,8 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
-      let val = self.data.val.get_excl(txn, node);
-      offset = StoreToMemory::store_to_memory(&*val, offset, writer);
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
     }
     offset
   }
@@ -434,7 +458,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
     let node = self._id();
     if vars.mask(self.data.grad.var()) {
       let grad = self.data.grad.get(txn, node);
-      offset = StoreToMemory::store_to_memory(&*grad, offset, writer);
+      offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
   }
@@ -455,7 +479,7 @@ impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -490,7 +514,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
-      offset = LoadFromMemory::load_from_memory(&mut *val, offset, reader);
+      offset = IoBuf::load(&mut *val, offset, reader);
     }
     offset
   }
@@ -498,8 +522,8 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
-      let val = self.data.val.get_excl(txn, node);
-      offset = StoreToMemory::store_to_memory(&*val, offset, writer);
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
     }
     offset
   }
@@ -508,7 +532,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
     let node = self._id();
     if vars.mask(self.data.grad.var()) {
       let grad = self.data.grad.get(txn, node);
-      offset = StoreToMemory::store_to_memory(&*grad, offset, writer);
+      offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
   }
@@ -529,7 +553,7 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -558,14 +582,8 @@ impl AutodiffOp for ArraySrc<DeviceArray2d<f32>> {
   }
 }
 
-/*impl ArrayOp<DeviceArray4d<f32>> for ArraySrc<DeviceArray4d<f32>> {
-  fn _data(&self) -> &ArrayData<DeviceArray4d<f32>> {
-    &self.data
-  }
-}*/
-
 impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -615,6 +633,34 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
     } else {
       0
     }
+  }*/
+
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);
+    }
+    offset
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
+    }
+    offset
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);
+    }
+    offset
   }
 
   fn _id(&self) -> NodeId {
@@ -633,7 +679,7 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -682,7 +728,7 @@ impl AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<Fn(TxnId, NodeId, Rc<Ref
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -721,7 +767,7 @@ impl AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<Ref
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -761,14 +807,14 @@ impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f3
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.output.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
     if self.output.val.overwrite(txn, node) {
-      match self.cond.val.get(txn) {
+      match self.cond.var.get(txn) {
         false => {
           self.output.val.get_excl(txn, node).as_view_mut()
             .copy(self.off.val.get(txn, node).as_view(), DeviceStream::implicit().conn());
@@ -783,7 +829,7 @@ impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f3
 
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     let node = self._id();
-    match self.cond.val.get(txn) {
+    match self.cond.var.get(txn) {
       false => {
         if self.off.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
           self.off.grad.get_mut(txn, node).as_view_mut()
@@ -832,7 +878,7 @@ impl AutodiffOp for MapOp<DeviceArray1d<f32>, RectMapKernel> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -978,7 +1024,7 @@ impl AutodiffOp for TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>,
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1075,7 +1121,7 @@ impl AutodiffOp for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1143,7 +1189,7 @@ impl AutodiffOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, Re
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1223,7 +1269,7 @@ impl AutodiffOp for LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1312,7 +1358,7 @@ impl AutodiffOp for LinearOp<DeviceArray2d<f32>, DeviceBatchArray1d<f32>, Device
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1409,7 +1455,7 @@ impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, ElemMultKernel> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1488,7 +1534,7 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1701,7 +1747,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1923,7 +1969,7 @@ impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, AvgPool, Cud
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2042,7 +2088,7 @@ impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, Cud
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2243,7 +2289,7 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.mean.rollover_all(txn, vars);
     self.var.rollover_all(txn, vars);
   }
@@ -2414,7 +2460,7 @@ impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKerne
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2505,7 +2551,7 @@ impl AutodiffOp for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Dev
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.loss.rollover_all(txn, vars);
   }
 

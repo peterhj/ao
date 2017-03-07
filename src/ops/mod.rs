@@ -20,30 +20,29 @@ use std::rc::{Rc, Weak};
 
 //const VEC_F32_TYPEID: TypeId = TypeId::of::<Vec<f32>>();
 
-pub trait LoadFromMemory {
-  fn load_from_memory(dst: &mut Self, offset: usize, reader: &mut Any) -> usize;
+pub trait IoBuf {
+  fn load(dst: &mut Self, offset: usize, reader: &mut Any) -> usize;
+  fn store(src: &Self, offset: usize, writer: &mut Any) -> usize;
 }
 
-pub trait StoreToMemory {
-  fn store_to_memory(src: &Self, offset: usize, writer: &mut Any) -> usize;
-}
-
-impl LoadFromMemory for Array1d<f32> {
-  fn load_from_memory(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
-    if reader.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = dst.dim();
+impl IoBuf for Array1d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.dim();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().copy(reader[offset .. offset + buf_len].flatten());
       offset += buf_len;
     }
     offset
   }
-}
 
-impl StoreToMemory for Array1d<f32> {
-  fn store_to_memory(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
-    if writer.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = src.dim();
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.dim();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       writer[offset .. offset + buf_len].flatten_mut().copy(src.as_view());
       offset += buf_len;
@@ -52,22 +51,24 @@ impl StoreToMemory for Array1d<f32> {
   }
 }
 
-impl LoadFromMemory for Array2d<f32> {
-  fn load_from_memory(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
-    if reader.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = dst.dim().flat_len();
+impl IoBuf for Array2d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.dim().flat_len();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().flatten_mut().copy(reader[offset .. offset + buf_len].flatten());
       offset += buf_len;
     }
     offset
   }
-}
 
-impl StoreToMemory for Array2d<f32> {
-  fn store_to_memory(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
-    if writer.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = src.dim().flat_len();
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.dim().flat_len();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       writer[offset .. offset + buf_len].flatten_mut().copy(src.as_view().flatten());
       offset += buf_len;
@@ -76,22 +77,24 @@ impl StoreToMemory for Array2d<f32> {
   }
 }
 
-impl LoadFromMemory for Array4d<f32> {
-  fn load_from_memory(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
-    if reader.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = dst.dim().flat_len();
+impl IoBuf for Array4d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.dim().flat_len();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().flatten_mut().copy(reader[offset .. offset + buf_len].flatten());
       offset += buf_len;
     }
     offset
   }
-}
 
-impl StoreToMemory for Array4d<f32> {
-  fn store_to_memory(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
-    if writer.downcast_mut::<Vec<f32>>().is_some() {
-      let buf_len = src.dim().flat_len();
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.dim().flat_len();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       writer[offset .. offset + buf_len].flatten_mut().copy(src.as_view().flatten());
       offset += buf_len;
@@ -112,52 +115,10 @@ pub fn sequential_src<A, F>(horizon: usize, cons: F) -> Rc<ArraySrc<A>> where F:
   let x: Rc<ArraySrc<Array1d<f32>>> = var(|_, _| Array1d::zeros(10));
 }*/
 
-pub struct TxnCopyValue<A> where A: Copy {
-  curr_txn: Cell<Option<TxnId>>,
-  value:    Cell<Option<A>>,
-}
-
-impl<A> TxnCopyValue<A> where A: Copy {
-  pub fn get(&self, txn: TxnId) -> A {
-    match self.curr_txn.get() {
-      None => {
-        panic!();
-      }
-      Some(prev_txn) => {
-        if prev_txn != txn {
-          panic!();
-        } else {
-          match self.value.get() {
-            None => panic!(),
-            Some(v) => v,
-          }
-        }
-      }
-    }
-  }
-
-  pub fn set(&self, txn: TxnId, new_value: A) {
-    match self.curr_txn.get() {
-      None => {
-        self.curr_txn.set(Some(txn));
-        self.value.set(Some(new_value));
-      }
-      Some(prev_txn) => {
-        if prev_txn != txn {
-          self.curr_txn.set(Some(txn));
-          self.value.set(Some(new_value));
-        } else {
-          assert_eq!(prev_txn, txn);
-        }
-      }
-    }
-  }
-}
-
 pub struct CopyConstant<A> where A: Copy {
   /*node_id:  NodeId,
   stack:    OperatorStack,*/
-  pub val:  TxnCopyValue<A>,
+  pub var:  TxnCopyVar<A>,
 }
 
 pub struct ArraySrc<A> {
@@ -255,7 +216,7 @@ impl AutodiffOp for ArraySrc<f32> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -358,7 +319,7 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -398,7 +359,7 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
-      offset = LoadFromMemory::load_from_memory(&mut *val, offset, reader);
+      offset = IoBuf::load(&mut *val, offset, reader);
     }
     offset
   }
@@ -407,7 +368,7 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       let val = self.data.val.get(txn, node);
-      offset = StoreToMemory::store_to_memory(&*val, offset, writer);
+      offset = IoBuf::store(&*val, offset, writer);
     }
     offset
   }
@@ -416,7 +377,7 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     let node = self._id();
     if vars.mask(self.data.grad.var()) {
       let grad = self.data.grad.get(txn, node);
-      offset = StoreToMemory::store_to_memory(&*grad, offset, writer);
+      offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
   }
@@ -437,7 +398,7 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -481,15 +442,26 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
-      if reader.downcast_mut::<Vec<f32>>().is_some() {
-        let mut val = self.data.val.get_excl(txn, node);
-        let buf_len = val.dim().flat_len();
-        let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
-        val.as_view_mut().flatten_mut().copy(reader[offset .. offset + buf_len].flatten());
-        offset += buf_len;
-      } else {
-        unimplemented!();
-      }
+      let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);
+    }
+    offset
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
+    }
+    offset
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
   }
@@ -510,7 +482,7 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -554,15 +526,26 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
-      if reader.downcast_mut::<Vec<f32>>().is_some() {
-        let mut val = self.data.val.get_excl(txn, node);
-        let buf_len = val.dim().flat_len();
-        let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
-        val.as_view_mut().flatten_mut().copy(reader[offset .. offset + buf_len].flatten());
-        offset += buf_len;
-      } else {
-        unimplemented!();
-      }
+      let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);
+    }
+    offset
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
+    }
+    offset
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
   }
@@ -583,7 +566,7 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.data.rollover_all(txn, vars);
   }
 
@@ -662,7 +645,7 @@ impl<A> AutodiffOp for PassOp<A> {
     }
   }
 
-  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -810,7 +793,7 @@ impl AutodiffOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -850,7 +833,7 @@ impl<S> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<Ref
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     // Do nothing, `data` belongs to `x`.
   }
 
@@ -973,7 +956,7 @@ impl<S, MapF> AutodiffOp for MapOp<Array1d<f32, S>, MapF> where S: DerefMut<Targ
     }
   }
 
-  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1193,7 +1176,7 @@ impl<S> AutodiffOp for TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTran
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1300,7 +1283,7 @@ impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1466,7 +1449,7 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1559,7 +1542,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1727,7 +1710,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1888,7 +1871,7 @@ impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, ElemMultKernel> w
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -1951,7 +1934,7 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, ElemN
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2126,7 +2109,7 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2522,7 +2505,7 @@ impl<S> AutodiffOp for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.mean.rollover_all(txn, vars);
     self.var.rollover_all(txn, vars);
   }
@@ -2608,7 +2591,7 @@ impl AutodiffOp for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2667,7 +2650,7 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.y.rollover_all(txn, vars);
   }
 
@@ -2772,7 +2755,7 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.loss.rollover_all(txn, vars);
   }
 
@@ -2917,7 +2900,7 @@ pub fn softmax_nll_loss<Op, A, Target, L>(x_: Rc<Op>, target_: Rc<ArrayOp<Target
     }
   }
 
-  default fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.loss.rollover_all(txn, vars);
   }
 
@@ -2951,7 +2934,7 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32, S>, B
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.loss.rollover_all(txn, vars);
   }
 
@@ -2997,7 +2980,7 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<(u32, f32)>, Batc
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.loss.rollover_all(txn, vars);
   }
 
@@ -3043,7 +3026,7 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<u32>, Batch<f32>,
     }
   }
 
-  fn _rollover(&self, txn: TxnId, vars: &mut VarSet) {
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
     self.loss.rollover_all(txn, vars);
   }
 
