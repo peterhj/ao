@@ -234,6 +234,12 @@ impl VarSet {
     }
   }
 
+  pub fn insert_all(&mut self, other_vars: &VarSet) {
+    for var in other_vars.inner.iter() {
+      self.inner.insert(var.clone());
+    }
+  }
+
   pub fn add(mut self, var: Var) -> Self {
     self.inner.insert(var);
     self

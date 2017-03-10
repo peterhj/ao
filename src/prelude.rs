@@ -11,5 +11,6 @@ pub use super::{
   init_master_rng,
   init_seed_rng,
   init_spawn_rng,
+  master_rng, spawn_rng,
 };
 pub use super::VarKind::*;

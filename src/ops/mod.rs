@@ -685,12 +685,12 @@ pub fn xavier_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) whe
   }
 }
 
-pub fn xavier_conv2d_init<R>(axes: (usize, usize)) -> impl Fn(Rc<RefCell<R>>, &mut Array4d<f32>) where R: Rng {
+pub fn xavier_conv2d_init<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut Array4d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut Array4d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
     let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
     let half_range = match axes {
-      (0, 1) => (6.0 / (a.dim().0 * a.dim().1 * a.dim().2 + a.dim().3) as f64).sqrt(),
+      Axes((0, 1)) => (6.0 / (a.dim().0 * a.dim().1 * a.dim().2 + a.dim().3) as f64).sqrt(),
       _ => unimplemented!(),
     };
     let dist = Range::new(-half_range, half_range);
@@ -712,12 +712,12 @@ pub fn kaiming_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) wh
   }
 }
 
-pub fn kaiming_conv2d_init<R>(axes: (usize, usize)) -> impl Fn(Rc<RefCell<R>>, &mut Array4d<f32>) where R: Rng {
+pub fn kaiming_conv2d_init<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut Array4d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut Array4d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
     let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
     let std = match axes {
-      (0, 1) => (2.0 / (a.dim().0 * a.dim().1 * a.dim().2) as f64).sqrt(),
+      Axes((0, 1)) => (2.0 / (a.dim().0 * a.dim().1 * a.dim().2) as f64).sqrt(),
       _ => unimplemented!(),
     };
     let dist = Normal::new(0.0, std);
@@ -1218,6 +1218,28 @@ pub struct JoinOp<A, JoinF> {
   kernel:   JoinF,
 }
 
+impl<A, JoinF> JoinOp<A, JoinF> {
+  pub fn new<F>(xs_: Vec<Rc<ArrayOp<A>>>, kernel: JoinF, clk_horizon: usize, alloc: Rc<F>) -> Rc<JoinOp<A, JoinF>> where F: 'static + Fn(TxnId, NodeId) -> A {
+    let node = NodeId::new();
+    let in_degree = xs_.len();
+    let mut xs = Vec::with_capacity(in_degree);
+    for x_ in xs_.iter() {
+      let x = x_.data();
+      xs.push(x);
+    }
+    assert_eq!(in_degree, xs_.len());
+    assert_eq!(in_degree, xs.len());
+    Rc::new(JoinOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, in_degree),
+      xs_:      xs_,
+      xs:       xs,
+      y:        ArrayData::new(clk_horizon, alloc),
+      kernel:   kernel,
+    })
+  }
+}
+
 impl<A, JoinF> ArrayOp<A> for JoinOp<A, JoinF> where JoinOp<A, JoinF>: AutodiffOp {
   default fn _data(&self) -> &ArrayData<A> {
     &self.y
@@ -1235,13 +1257,22 @@ pub fn axis_join<Op, A>(xs: Vec<Rc<Op>>) -> Rc<JoinOp<A, AxisJoinKernel>> where 
   <Rc<Op> as AxisJoinExt<Op, A>>::axis_join(xs)
 }
 
-pub trait SumExt<Op, A> where Op: ArrayOp<A> {
-  fn sum(xs_: Vec<Rc<Op>>) -> Rc<JoinOp<A, SumJoinKernel>>;
-  fn add(&self, x_: Rc<Op>) -> Rc<JoinOp<A, SumJoinKernel>>;
+pub trait AddExt<A> {
+  fn add<RhsOp>(&self, x_: Rc<RhsOp>) -> Rc<JoinOp<A, SumJoinKernel>> where RhsOp: 'static + ArrayOp<A>;
 }
 
-pub fn sum<Op, A>(xs_: Vec<Rc<Op>>) -> Rc<JoinOp<A, SumJoinKernel>> where Rc<Op>: SumExt<Op, A>, Op: ArrayOp<A> {
-  <Rc<Op> as SumExt<Op, A>>::sum(xs_)
+impl<Op, A> AddExt<A> for Rc<Op> where Rc<JoinOp<A, SumJoinKernel>>: SumExt<A>, Op: 'static + ArrayOp<A> {
+  default fn add<RhsOp>(&self, x_: Rc<RhsOp>) -> Rc<JoinOp<A, SumJoinKernel>> where RhsOp: 'static + ArrayOp<A> {
+    <Rc<JoinOp<A, SumJoinKernel>> as SumExt<A>>::sum(vec![ArrayOp::from(self.clone()), ArrayOp::from(x_)])
+  }
+}
+
+pub trait SumExt<A> {
+  fn sum(xs_: Vec<Rc<ArrayOp<A>>>) -> Rc<JoinOp<A, SumJoinKernel>>;
+}
+
+pub fn sum<A>(xs_: Vec<Rc<ArrayOp<A>>>) -> Rc<JoinOp<A, SumJoinKernel>> where Rc<JoinOp<A, SumJoinKernel>>: SumExt<A> {
+  <Rc<JoinOp<A, SumJoinKernel>> as SumExt<A>>::sum(xs_)
 }
 
 impl<Op, S> AxisJoinExt<Op, Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
@@ -1250,7 +1281,17 @@ impl<Op, S> AxisJoinExt<Op, Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1
   }
 }
 
-impl<Op, S> SumExt<Op, Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
+/*impl<Op, A> SumExt<A> for Rc<Op> where Op: ArrayOp<A> {
+  default fn sum(xs_: Vec<Rc<Op>>) -> Rc<JoinOp<A, SumJoinKernel>> {
+    unimplemented!();
+  }
+
+  default fn add(&self, x_: Rc<Op>) -> Rc<JoinOp<A, SumJoinKernel>> {
+    Self::sum(vec![self.clone(), x_])
+  }
+}*/
+
+/*impl<Op, S> SumExt<Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
   fn sum(xs_: Vec<Rc<Op>>) -> Rc<JoinOp<Array1d<f32, S>, SumJoinKernel>> where S: DerefMut<Target=[f32]> {
     unimplemented!();
   }
@@ -1258,7 +1299,7 @@ impl<Op, S> SumExt<Op, Array1d<f32, S>> for Rc<Op> where Op: ArrayOp<Array1d<f32
   fn add(&self, x_: Rc<Op>) -> Rc<JoinOp<Array1d<f32, S>, SumJoinKernel>> {
     Self::sum(vec![self.clone(), x_])
   }
-}
+}*/
 
 impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
@@ -2016,23 +2057,50 @@ impl<Idx, A, V> ArrayOp<V> for ElemNormalizeOp<Idx, A, V> where ElemNormalizeOp<
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ConvShape<Idx> where Idx: ArrayIndex {
   pub axes:     Idx::Axes,
   pub kernel:   Idx,
   pub stride:   Idx,
-  pub zero_pad: Idx,
+  //pub zero_pad: Idx,
+  pub zero_pad: bool,
+  pub filters:  Option<usize>,
 }
 
 impl ConvShape<(usize, usize)> {
+  pub fn conv2d_pad_dim(&self, in_dim: (usize, usize, usize)) -> (usize, usize) {
+    match self.zero_pad {
+      false => (0, 0),
+      true  => {
+        match self.axes {
+          // FIXME(20170309): this calculation ignores input and stride dimensions.
+          Axes((0, 1)) => (self.kernel.0 / 2, self.kernel.1 / 2),
+          _ => unimplemented!(),
+        }
+      }
+    }
+  }
+
+  pub fn conv2d_kernel_dim(&self, in_dim: (usize, usize, usize)) -> (usize, usize, usize, usize) {
+    match self.axes {
+      Axes((0, 1)) => (self.kernel.0, self.kernel.1, in_dim.2, self.filters.unwrap_or(in_dim.2)),
+      _ => unimplemented!(),
+    }
+  }
+
   pub fn conv2d_output_dim(&self, in_dim: (usize, usize, usize)) -> (usize, usize, usize) {
-    let (in_w, in_h, in_chan) = in_dim;
-    let (kern_w, kern_h) = self.kernel;
-    let (stride_w, stride_h) = self.stride;
-    let (pad_w, pad_h) = self.zero_pad;
-    let out_w = max(0, (in_w + 2 * pad_w - kern_w + stride_w) as isize) as usize / stride_w;
-    let out_h = max(0, (in_h + 2 * pad_h - kern_h + stride_h) as isize) as usize / stride_h;
-    (out_w, out_h, in_chan)
+    match self.axes {
+      Axes((0, 1)) => {
+        let (in_w, in_h, in_chan) = in_dim;
+        let (kernel_w, kernel_h) = self.kernel;
+        let (stride_w, stride_h) = self.stride;
+        let (pad_w, pad_h) = self.conv2d_pad_dim(in_dim);
+        let out_w = max(0, (in_w + 2 * pad_w - kernel_w + stride_w) as isize) as usize / stride_w;
+        let out_h = max(0, (in_h + 2 * pad_h - kernel_h + stride_h) as isize) as usize / stride_h;
+        (out_w, out_h, self.filters.unwrap_or(in_dim.2))
+      }
+      _ => unimplemented!(),
+    }
   }
 }
 

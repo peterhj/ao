@@ -708,6 +708,12 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   }
 }
 
+pub fn kaiming_conv2d_init_gpu<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray4d<f32>) where R: Rng {
+  move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray4d<f32>| {
+    unimplemented!();
+  }
+}
+
 //impl<F> AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray1d<f32>) {
 impl AutodiffOp for InitializeOp<DeviceArray1d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray1d<f32>>)>> {
   fn _id(&self) -> NodeId {
@@ -776,6 +782,41 @@ impl AutodiffOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<Ref
     /*if self.data.val.overwrite(txn, node) {
       (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
     }*/
+    (self.kernel)(txn, node, seed_rng, self.data.clone());
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+}
+
+impl AutodiffOp for InitializeOp<DeviceArray4d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray4d<f32>>)>> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    // Do nothing, `data` belongs to `x`.
+  }
+
+  fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
+    let node = self._id();
     (self.kernel)(txn, node, seed_rng, self.data.clone());
   }
 
@@ -1213,6 +1254,117 @@ impl AutodiffOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, Re
   }
 }
 
+/*impl<Op> AddExt<DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray3d<f32>> {
+  fn add<RhsOp>(&self, x_: Rc<RhsOp>) -> Rc<JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel>> where RhsOp: 'static + ArrayOp<DeviceBatchArray3d<f32>> {
+    <Rc<JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel>> as SumExt<DeviceBatchArray3d<f32>>>::sum(vec![ArrayOp::from(self.clone()), ArrayOp::from(x_)])
+  }
+}*/
+
+impl SumExt<DeviceBatchArray3d<f32>> for Rc<JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel>> {
+  fn sum(xs_: Vec<Rc<ArrayOp<DeviceBatchArray3d<f32>>>>) -> Rc<JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel>> {
+    let mut clk_horizon0 = None;
+    let mut xs = Vec::with_capacity(xs_.len());
+    for x_ in xs_.iter() {
+      let x = x_.data();
+      let clk_horizon = x_.data().horizon();
+      match clk_horizon0 {
+        None      => clk_horizon0 = Some(clk_horizon),
+        Some(hzn) => assert_eq!(hzn, clk_horizon),
+      }
+      xs.push(x);
+    }
+    let clk_horizon = clk_horizon0.unwrap();
+    JoinOp::new(xs_, SumJoinKernel, clk_horizon, {
+      Rc::new(move |txn, node| {
+        let mut batch_cap0 = None;
+        let mut x_dim0 = None;
+        for x in xs.iter() {
+          let batch_cap = x.val.get(txn, node).batch_capacity();
+          match batch_cap0 {
+            None      => batch_cap0 = Some(batch_cap),
+            Some(cap) => assert_eq!(cap, batch_cap),
+          }
+          let x_dim = x.val.get(txn, node).dim();
+          match x_dim0 {
+            None      => x_dim0 = Some(x_dim),
+            Some(dim) => assert_eq!(dim, x_dim),
+          }
+        }
+        let batch_cap = batch_cap0.unwrap();
+        let x_dim = x_dim0.unwrap();
+        DeviceBatchArray3d::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl AutodiffOp for JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      for x_ in self.xs_.iter() {
+        x_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      for x_ in self.xs_.iter() {
+        x_._pop(epoch, apply);
+      }
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let batch_sz0 = self.xs[0].val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz0).as_view_mut()
+        .copy(self.xs[0].val.get(txn, node).as_view(), DeviceStream::implicit().conn());
+      for x in self.xs.iter().skip(1) {
+        let batch_sz = x.val.get(txn, node).batch_size();
+        assert_eq!(batch_sz0, batch_sz);
+        self.y.val.get_excl(txn, node).as_view_mut().flatten_mut()
+          .add(1.0, x.val.get(txn, node).as_view().flatten(), DeviceStream::implicit().conn());
+      }
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    for x in self.xs.iter() {
+      let batch_sz = x.val.get(txn, node).batch_size();
+      x.grad.get_mut(txn, node).set_batch_size(batch_sz).as_view_mut().flatten_mut()
+        .add(1.0, self.y.grad.get(txn, node).as_view().flatten(), DeviceStream::implicit().conn());
+    }
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+}
+
 impl<Op> MultExt<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray1d<f32>> {
   fn mult(&self, x_: Rc<ArrayOp<DeviceArray1d<f32>>>) -> Rc<LinearOp<DeviceArray1d<f32>, DeviceArray1d<f32>, DeviceMem<f32>, DeviceMem<f32>>> {
     let clk_horizon = x_.data().horizon();
@@ -1479,6 +1631,100 @@ impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, ElemMultKernel> {
   fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
     // TODO
     //unimplemented!();
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _r_backward(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+
+  fn _backward2(&self, txn: TxnId) {
+    // TODO
+    unimplemented!();
+  }
+}
+
+impl<Op> ElemMultExt<DeviceArray1d<f32>, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceArray1d<f32>> {
+  fn elem_mult(&self, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>) -> Rc<ElemLinearOp<DeviceArray1d<f32>, DeviceBatchArray3d<f32>, ElemMultKernel>> {
+    unimplemented!();
+  }
+
+  fn elem_mult_add(&self, x_: Rc<ArrayOp<DeviceBatchArray3d<f32>>>, b_: Rc<ArrayOp<DeviceArray1d<f32>>>) -> Rc<ElemLinearOp<DeviceArray1d<f32>, DeviceBatchArray3d<f32>, ElemMultKernel>> {
+    // TODO
+    unimplemented!();
+  }
+}
+
+impl AutodiffOp for ElemLinearOp<DeviceArray1d<f32>, DeviceBatchArray3d<f32>, ElemMultKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.a_._push(epoch, apply);
+      self.x_._push(epoch, apply);
+      if let Some(ref b_) = self.b_ {
+        b_._push(epoch, apply);
+      }
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      if let Some(ref b_) = self.b_ {
+        b_._pop(epoch, apply);
+      }
+      self.x_._pop(epoch, apply);
+      self.a_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    if self.y.val.overwrite(txn, node) {
+      let batch_sz = self.x.val.get(txn, node).batch_size();
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      // TODO
+      unimplemented!();
+      /*self.y.val.get_excl(txn, node).as_view_mut()
+        .flatten_mut()
+        .copy(self.x.val.get(txn, node).as_view().flatten(), DeviceStream::implicit().conn());
+      self.y.val.get_excl(txn, node).as_view_mut()
+        .flatten_mut()
+        .scale(*self.a.val.get(txn, node), DeviceStream::implicit().conn());*/
+      if let Some(ref b) = self.b {
+        unimplemented!();
+      }
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    // TODO
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+    if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      unimplemented!();
+    }
+    if let Some(ref b) = self.b {
+      if b.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+        unimplemented!();
+      }
+    }
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
@@ -1764,7 +2010,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
         let (out_w, out_h, out_chan) = self.shape.conv2d_output_dim(x_dim);
         let (kernel_w, kernel_h) = self.shape.kernel;
         let (stride_w, stride_h) = self.shape.stride;
-        let (pad_w, pad_h) = self.shape.zero_pad;
+        let (pad_w, pad_h) = self.shape.conv2d_pad_dim(x_dim);
         let conn = DeviceStream::implicit().conn();
         let fwd = CudnnConvFwdOp::create_fastest(
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
@@ -1985,7 +2231,8 @@ impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, AvgPool, Cud
         let (out_w, out_h, _) = self.shape.conv2d_output_dim(x_dim);
         let (kern_w, kern_h) = self.shape.kernel;
         let (stride_w, stride_h) = self.shape.stride;
-        let (pad_w, pad_h) = self.shape.zero_pad;
+        //let (pad_w, pad_h) = self.shape.zero_pad;
+        let (pad_w, pad_h) = self.shape.conv2d_pad_dim(x_dim);
         let pooling = match CudnnPoolingOp::create_2d(
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
@@ -2104,7 +2351,8 @@ impl AutodiffOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, Cud
         let (out_w, out_h, _) = self.shape.conv2d_output_dim(x_dim);
         let (kern_w, kern_h) = self.shape.kernel;
         let (stride_w, stride_h) = self.shape.stride;
-        let (pad_w, pad_h) = self.shape.zero_pad;
+        //let (pad_w, pad_h) = self.shape.zero_pad;
+        let (pad_w, pad_h) = self.shape.conv2d_pad_dim(x_dim);
         let pooling = match CudnnPoolingOp::create_2d(
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, chan, batch_sz).unwrap(),
