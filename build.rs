@@ -62,6 +62,7 @@ fn main() {
     .include("/usr/local/cuda/include")
     //.file("cuda_kernels/common.cu")
     .file("cuda_kernels/batch_norm.cu")
+    .file("cuda_kernels/conv.cu")
     .file("cuda_kernels/reduce.cu")
     .file("cuda_kernels/softmax.cu")
     .file("cuda_kernels/special_map.cu")

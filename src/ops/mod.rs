@@ -161,9 +161,8 @@ impl AutodiffOp for ArraySrc<f32> {
         }*/
       }
       unimplemented!();
-    } else {
-      0
     }
+    offset
   }
 
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
@@ -178,9 +177,8 @@ impl AutodiffOp for ArraySrc<f32> {
         unimplemented!();
       }*/
       unimplemented!();
-    } else {
-      0
     }
+    offset
   }
 
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
@@ -195,9 +193,8 @@ impl AutodiffOp for ArraySrc<f32> {
         unimplemented!();
       }*/
       unimplemented!();
-    } else {
-      0
     }
+    offset
   }
 
   fn _id(&self) -> NodeId {
@@ -264,9 +261,8 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
         }*/
       }
       unimplemented!();
-    } else {
-      0
     }
+    offset
   }
 
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
@@ -281,9 +277,8 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
         unimplemented!();
       }*/
       unimplemented!();
-    } else {
-      0
     }
+    offset
   }
 
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
@@ -298,9 +293,8 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
         unimplemented!();
       }*/
       unimplemented!();
-    } else {
-      0
     }
+    offset
   }
 
   fn _id(&self) -> NodeId {
@@ -1867,12 +1861,12 @@ impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
   }
 }
 
-pub struct ElemMultKernel;
+pub struct BroadcastMultAddKernel;
 pub struct ElemNormalizeKernel{pub epsilon: f64}
 
 pub trait ElemMultExt<A, V> {
-  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, ElemMultKernel>>;
-  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, ElemMultKernel>>;
+  fn elem_mult(&self, x_: Rc<ArrayOp<V>>) -> Rc<ElemLinearOp<A, V, BroadcastMultAddKernel>>;
+  fn elem_mult_add(&self, x_: Rc<ArrayOp<V>>, b_: Rc<ArrayOp<A>>) -> Rc<ElemLinearOp<A, V, BroadcastMultAddKernel>>;
 }
 
 /*pub trait ElemNormalizeExt<A, V> {
@@ -1885,7 +1879,7 @@ impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<
   }
 }
 
-impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, ElemMultKernel> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, BroadcastMultAddKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

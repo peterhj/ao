@@ -296,13 +296,13 @@ pub trait AutodiffOp {
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
 
-  fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { 0 }
-  fn _load_val(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _reader: &mut Any) -> usize { 0 }
-  fn _load_r_val(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _reader: &mut Any) -> usize { 0 }
-  fn _store_val(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
-  fn _store_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
-  fn _store_r_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
-  fn _store_grad2(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { 0 }
+  fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { unimplemented!(); }
+  fn _load_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _reader: &mut Any) -> usize { offset }
+  fn _load_r_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _reader: &mut Any) -> usize { offset }
+  fn _store_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _writer: &mut Any) -> usize { offset }
+  fn _store_grad(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _writer: &mut Any) -> usize { offset }
+  fn _store_r_grad(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _writer: &mut Any) -> usize { offset }
+  fn _store_grad2(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _writer: &mut Any) -> usize { offset }
   fn _persist(&self, _txn: TxnId, _vars: &mut VarSet) {}
 
   fn _init(&self, _txn: TxnId, _seed_rng: Rc<RefCell<ChaChaRng>>) {}
@@ -335,7 +335,9 @@ pub trait AutodiffOp {
     vars.unmask_all();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_val(txn, vars, 0, &mut NullIo);
+      //println!("DEBUG: val_size: epoch: {:?} offset pre:  {}", epoch, offset);
+      offset = op._store_val(txn, vars, offset, &mut NullIo);
+      //println!("DEBUG: val_size: epoch: {:?} offset post: {}", epoch, offset);
     });
     vars.unmask_all();
     offset
@@ -347,7 +349,7 @@ pub trait AutodiffOp {
     //reader.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._load_val(txn, vars, offset, reader);
+      offset = op._load_val(txn, vars, offset, reader);
     });
     vars.unmask_all();
     offset
@@ -359,7 +361,7 @@ pub trait AutodiffOp {
     reader.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._load_r_val(txn, vars, offset, reader.as_any());
+      offset = op._load_r_val(txn, vars, offset, reader.as_any());
     });
     vars.unmask_all();
     offset
@@ -371,7 +373,7 @@ pub trait AutodiffOp {
     //writer.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_val(txn, vars, offset, writer);
+      offset = op._store_val(txn, vars, offset, writer);
     });
     vars.unmask_all();
     offset
@@ -383,7 +385,7 @@ pub trait AutodiffOp {
     //writer.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_grad(txn, vars, offset, writer);
+      offset = op._store_grad(txn, vars, offset, writer);
     });
     vars.unmask_all();
     offset
@@ -395,7 +397,7 @@ pub trait AutodiffOp {
     writer.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_r_grad(txn, vars, offset, writer.as_any());
+      offset = op._store_r_grad(txn, vars, offset, writer.as_any());
     });
     vars.unmask_all();
     offset
@@ -407,7 +409,7 @@ pub trait AutodiffOp {
     writer.reset();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      offset += op._store_grad2(txn, vars, offset, writer.as_any());
+      offset = op._store_grad2(txn, vars, offset, writer.as_any());
     });
     vars.unmask_all();
     offset
