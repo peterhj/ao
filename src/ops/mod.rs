@@ -866,7 +866,7 @@ pub struct BranchOp<Cond, On, Off, Data> {
 impl<Cond, On, Off, Data> OutputOp for BranchOp<Cond, On, Off, Data> where BranchOp<Cond, On, Off, Data>: AutodiffOp, Data: OutputData {
   type Data = Data;
 
-  fn _data(&self) -> &Data {
+  fn _own_data(&self) -> &Data {
     &self.output
   }
 }

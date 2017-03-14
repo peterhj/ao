@@ -248,12 +248,21 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
       let mut val = self.data.val.get_excl(txn, node);
-      if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
+      if reader.downcast_mut::<NullIo>().is_some() {
+        unimplemented!();
+      } else if reader.downcast_mut::<ZeroIo>().is_some() {
+        let batch_sz = val.batch_capacity().unwrap_or(val.batch_size());
+        val.set_batch_size(batch_sz, &*DeviceStream::implicit());
+        for idx in 0 .. batch_sz {
+          val[idx].as_mut().set_constant(0, DeviceStream::implicit().conn());
+        }
+        offset += val.stride() * val.batch_size();
+      } else if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
         let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
         let batch_sz = src_bufs.len();
         val.set_batch_size(batch_sz, &*DeviceStream::implicit());
         for idx in 0 .. batch_sz {
-          val.load(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
+          val.load_batch(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
         }
         offset += val.stride() * val.batch_size();
         /*let mut tmp = Vec::with_capacity(val.stride());
@@ -708,9 +717,61 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
   }
 }
 
+pub fn normal_linear_init_gpu<R>(mean: f64, std: f64) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
+  move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray2d<f32>| {
+    let mut seed_rng = seed_rng.borrow_mut();
+    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let dist = Normal::new(mean, std);
+    let mut h_a = Array2d::zeros(a.dim());
+    for e in h_a.as_mut_slice().iter_mut() {
+      *e = dist.ind_sample(&mut rng) as f32;
+    }
+    a.as_view_mut().load_sync(h_a.as_view(), DeviceStream::implicit().conn());
+  }
+}
+
+pub fn xavier_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
+  move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray2d<f32>| {
+    let mut seed_rng = seed_rng.borrow_mut();
+    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let half_range = (6.0 / (a.dim().0 + a.dim().1) as f64).sqrt();
+    let dist = Range::new(-half_range, half_range);
+    let mut h_a = Array2d::zeros(a.dim());
+    for e in h_a.as_mut_slice().iter_mut() {
+      *e = dist.ind_sample(&mut rng) as f32;
+    }
+    a.as_view_mut().load_sync(h_a.as_view(), DeviceStream::implicit().conn());
+  }
+}
+
+pub fn kaiming_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
+  move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray2d<f32>| {
+    let mut seed_rng = seed_rng.borrow_mut();
+    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let std = (2.0 / a.dim().1 as f64).sqrt();
+    let dist = Normal::new(0.0, std);
+    let mut h_a = Array2d::zeros(a.dim());
+    for e in h_a.as_mut_slice().iter_mut() {
+      *e = dist.ind_sample(&mut rng) as f32;
+    }
+    a.as_view_mut().load_sync(h_a.as_view(), DeviceStream::implicit().conn());
+  }
+}
+
 pub fn kaiming_conv2d_init_gpu<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray4d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray4d<f32>| {
-    unimplemented!();
+    let mut seed_rng = seed_rng.borrow_mut();
+    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let std = match axes {
+      Axes((0, 1)) => (2.0 / (a.dim().0 * a.dim().1 * a.dim().2) as f64).sqrt(),
+      _ => unimplemented!(),
+    };
+    let dist = Normal::new(0.0, std);
+    let mut h_a = Array4d::zeros(a.dim());
+    for e in h_a.as_mut_slice().iter_mut() {
+      *e = dist.ind_sample(&mut rng) as f32;
+    }
+    a.as_view_mut().load_sync(h_a.as_view(), DeviceStream::implicit().conn());
   }
 }
 
@@ -2038,9 +2099,9 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
     ConvOp::new(shape, self.clone(), x_.clone(), None, backend, clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
-        let dim = x.val.get(txn, node).dim();
+        let x_dim = x.val.get(txn, node).dim();
         let batch_cap = x.val.get(txn, node).batch_capacity();
-        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+        DeviceBatchArray3d::zeros(shape.conv2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
       })
     })
   }
