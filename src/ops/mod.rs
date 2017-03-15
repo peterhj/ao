@@ -670,7 +670,7 @@ pub fn init_val<R, A, F>(f: F) -> impl Fn(TxnId, NodeId, Rc<RefCell<R>>, ArrayDa
 pub fn xavier_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut Array2d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let half_range = (6.0 / (a.dim().0 + a.dim().1) as f64).sqrt();
     let dist = Range::new(-half_range, half_range);
     for e in a.as_mut_slice().iter_mut() {
@@ -682,7 +682,7 @@ pub fn xavier_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) whe
 pub fn xavier_conv2d_init<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut Array4d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut Array4d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let half_range = match axes {
       Axes((0, 1)) => (6.0 / (a.dim().0 * a.dim().1 * a.dim().2 + a.dim().3) as f64).sqrt(),
       _ => unimplemented!(),
@@ -697,7 +697,7 @@ pub fn xavier_conv2d_init<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R
 pub fn kaiming_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut Array2d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let std = (2.0 / a.dim().0 as f64).sqrt();
     let dist = Normal::new(0.0, std);
     for e in a.as_mut_slice().iter_mut() {
@@ -709,7 +709,7 @@ pub fn kaiming_linear_init<R>() -> impl Fn(Rc<RefCell<R>>, &mut Array2d<f32>) wh
 pub fn kaiming_conv2d_init<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut Array4d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut Array4d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let std = match axes {
       Axes((0, 1)) => (2.0 / (a.dim().0 * a.dim().1 * a.dim().2) as f64).sqrt(),
       _ => unimplemented!(),

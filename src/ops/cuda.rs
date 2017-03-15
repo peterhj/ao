@@ -669,7 +669,7 @@ impl AutodiffOp for ArraySrc<DeviceArray4d<f32>> {
 pub fn normal_linear_init_gpu<R>(mean: f64, std: f64) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray2d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let dist = Normal::new(mean, std);
     let mut h_a = Array2d::zeros(a.dim());
     for e in h_a.as_mut_slice().iter_mut() {
@@ -682,7 +682,7 @@ pub fn normal_linear_init_gpu<R>(mean: f64, std: f64) -> impl Fn(Rc<RefCell<R>>,
 pub fn xavier_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray2d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let half_range = (6.0 / (a.dim().0 + a.dim().1) as f64).sqrt();
     let dist = Range::new(-half_range, half_range);
     let mut h_a = Array2d::zeros(a.dim());
@@ -696,7 +696,7 @@ pub fn xavier_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d
 pub fn kaiming_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray2d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let std = (2.0 / a.dim().1 as f64).sqrt();
     let dist = Normal::new(0.0, std);
     let mut h_a = Array2d::zeros(a.dim());
@@ -710,7 +710,7 @@ pub fn kaiming_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2
 pub fn kaiming_conv2d_init_gpu<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray4d<f32>) where R: Rng {
   move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray4d<f32>| {
     let mut seed_rng = seed_rng.borrow_mut();
-    let mut rng = Xorshiftplus128Rng::from_seed([seed_rng.next_u64(), seed_rng.next_u64()]);
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
     let std = match axes {
       Axes((0, 1)) => (2.0 / (a.dim().0 * a.dim().1 * a.dim().2) as f64).sqrt(),
       _ => unimplemented!(),
