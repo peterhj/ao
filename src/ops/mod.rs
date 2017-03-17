@@ -593,6 +593,11 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
   }
 }
 
+/*pub fn pass<A, Op: ?Sized>(x_: Rc<Op>) -> Rc<PassOp<A>> where Op: 'static + ArrayOp<A> {
+  let data = x_.data();
+  PassOp::new(Some(AutodiffOp::from(x_)), data)
+}*/
+
 pub struct PassOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
@@ -636,6 +641,67 @@ impl<A> AutodiffOp for PassOp<A> {
       apply(self);
       let x_ = self.x_.borrow();
       x_.as_ref().unwrap()._pop(epoch, apply);
+    }
+  }
+
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    // Do nothing, `data` belongs to `x`.
+  }
+
+  default fn _forward(&self, txn: TxnId) {
+  }
+
+  default fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+}
+
+pub fn no_bwd_pass<A, Op>(x_: Rc<Op>) -> Rc<NoBwdPassOp<A>> where Op: 'static + ArrayOp<A> {
+  let data = x_.data();
+  NoBwdPassOp::new(Some(AutodiffOp::from(x_)), data)
+}
+
+pub struct NoBwdPassOp<A> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       RefCell<Option<Rc<AutodiffOp>>>,
+  data:     ArrayData<A>,
+}
+
+impl<A> NoBwdPassOp<A> {
+  pub fn new(x_: Option<Rc<AutodiffOp>>, data: ArrayData<A>) -> Rc<Self>{
+    let node = NodeId::new();
+    Rc::new(NoBwdPassOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:       RefCell::new(x_),
+      data:     data,
+    })
+  }
+}
+
+impl<A> ArrayOp<A> for NoBwdPassOp<A> {
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.data
+  }
+}
+
+impl<A> AutodiffOp for NoBwdPassOp<A> {
+  default fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      let x_ = self.x_.borrow();
+      x_.as_ref().unwrap()._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      // Backward pass stops here.
+      apply(self);
     }
   }
 
@@ -2747,6 +2813,16 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
   }
 }
 
+pub struct OneHotOp<A, Idx, Out> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<ArrayOp<A>>,
+  index_:   Rc<ArrayOp<Idx>>,
+  x:        ArrayData<A>,
+  index:    ArrayData<Idx>,
+  output:   ArrayData<Out>,
+}
+
 pub fn sink<Op, A>(x_: Rc<Op>) -> Rc<ArraySink<Op, A>> where Op: ArrayOp<A> {
   let x = x_.data();
   Rc::new(ArraySink{
@@ -2784,6 +2860,10 @@ impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: ArrayOp<f32> {
       *self.x.grad.get_excl(txn, node) = 1.0;
     }
   }
+}
+
+pub fn lst_sq_loss<A, Op>(x_: Rc<Op>, t_: Rc<Op>) -> Rc<LstSqLoss<A>> where Op: 'static + ArrayOp<A> {
+  unimplemented!();
 }
 
 pub struct LstSqLoss<A> {

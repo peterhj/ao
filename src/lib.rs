@@ -1073,6 +1073,33 @@ impl<A> TxnVar<A> {
   }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum DerivativeKey {
+  Val,
+  Grad(usize),
+  DirectGrad{order: usize, index: usize},
+}
+
+pub fn val_key() -> DerivativeKey {
+  DerivativeKey::Val
+}
+
+pub fn grad_key() -> DerivativeKey {
+  DerivativeKey::Grad(1)
+}
+
+pub fn grad2_key() -> DerivativeKey {
+  DerivativeKey::Grad(2)
+}
+
+pub fn r_val_key() -> DerivativeKey {
+  DerivativeKey::DirectGrad{order: 1, index: 0}
+}
+
+pub fn r_grad_key() -> DerivativeKey {
+  DerivativeKey::DirectGrad{order: 2, index: 0}
+}
+
 pub struct ArrayData<A> {
   symbol:       Symbol,
   clk_horizon:  usize,
