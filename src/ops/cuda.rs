@@ -2098,6 +2098,8 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
         let batch_cap = x.val.get(txn, node).batch_capacity();
+        //println!("DEBUG: conv: input dim: {:?}", x_dim);
+        //println!("DEBUG: conv: output dim: {:?}", shape.conv2d_output_dim(x_dim));
         DeviceBatchArray3d::zeros(shape.conv2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
       })
     })
@@ -2366,6 +2368,7 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
         Rc::new(move |txn, node| {
           let x_dim = x.val.get(txn, node).dim();
           let batch_cap = x.val.get(txn, node).batch_capacity();
+          //println!("DEBUG: allocating avgpool mask: shape: {:?}", shape.pool2d_output_dim(x_dim));
           DeviceBatchArray3d::zeros(shape.pool2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
         })
       }),
@@ -2375,6 +2378,8 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
         let batch_cap = x.val.get(txn, node).batch_capacity();
+        //println!("DEBUG: avgpool input: shape: {:?}", x_dim);
+        //println!("DEBUG: allocating avgpool output: shape: {:?}", shape.pool2d_output_dim(x_dim));
         DeviceBatchArray3d::zeros(shape.pool2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
       })
     })
@@ -2389,6 +2394,7 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
         Rc::new(move |txn, node| {
           let x_dim = x.val.get(txn, node).dim();
           let batch_cap = x.val.get(txn, node).batch_capacity();
+          //println!("DEBUG: allocating maxpool mask: shape: {:?}", shape.pool2d_output_dim(x_dim));
           DeviceBatchArray3d::zeros(shape.pool2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
         })
       }),
@@ -2398,6 +2404,8 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
         let batch_cap = x.val.get(txn, node).batch_capacity();
+        //println!("DEBUG: maxpool input: shape: {:?}", x_dim);
+        //println!("DEBUG: allocating maxpool output: shape: {:?}", shape.pool2d_output_dim(x_dim));
         DeviceBatchArray3d::zeros(shape.pool2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
       })
     })

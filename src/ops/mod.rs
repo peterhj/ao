@@ -2425,7 +2425,7 @@ impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIn
 
 impl<Idx, V, Kernel, Backend> ArrayOp<V> for PoolOp<Idx, V, Kernel, Backend> where PoolOp<Idx, V, Kernel, Backend>: AutodiffOp, Idx: ArrayIndex {
   fn _data(&self) -> &ArrayData<V> {
-    &self.x
+    &self.y
   }
 }
 
