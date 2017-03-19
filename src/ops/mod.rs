@@ -593,10 +593,10 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
   }
 }
 
-/*pub fn pass<A, Op: ?Sized>(x_: Rc<Op>) -> Rc<PassOp<A>> where Op: 'static + ArrayOp<A> {
+pub fn pass<A, Op>(x_: Rc<Op>) -> Rc<PassOp<A>> where Op: 'static + ArrayOp<A> {
   let data = x_.data();
   PassOp::new(Some(AutodiffOp::from(x_)), data)
-}*/
+}
 
 pub struct PassOp<A> {
   node_id:  NodeId,
@@ -655,22 +655,22 @@ impl<A> AutodiffOp for PassOp<A> {
   }
 }
 
-pub fn no_bwd_pass<A, Op>(x_: Rc<Op>) -> Rc<NoBwdPassOp<A>> where Op: 'static + ArrayOp<A> {
+pub fn no_pass<A, Op>(x_: Rc<Op>) -> Rc<NoPassOp<A>> where Op: 'static + ArrayOp<A> {
   let data = x_.data();
-  NoBwdPassOp::new(Some(AutodiffOp::from(x_)), data)
+  NoPassOp::new(Some(AutodiffOp::from(x_)), data)
 }
 
-pub struct NoBwdPassOp<A> {
+pub struct NoPassOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       RefCell<Option<Rc<AutodiffOp>>>,
   data:     ArrayData<A>,
 }
 
-impl<A> NoBwdPassOp<A> {
+impl<A> NoPassOp<A> {
   pub fn new(x_: Option<Rc<AutodiffOp>>, data: ArrayData<A>) -> Rc<Self>{
     let node = NodeId::new();
-    Rc::new(NoBwdPassOp{
+    Rc::new(NoPassOp{
       node_id:  node,
       stack:    OperatorStack::new(node, 1),
       x_:       RefCell::new(x_),
@@ -679,13 +679,69 @@ impl<A> NoBwdPassOp<A> {
   }
 }
 
-impl<A> ArrayOp<A> for NoBwdPassOp<A> {
+impl<A> ArrayOp<A> for NoPassOp<A> {
   default fn _data(&self) -> &ArrayData<A> {
     &self.data
   }
 }
 
-impl<A> AutodiffOp for NoBwdPassOp<A> {
+impl<A> AutodiffOp for NoPassOp<A> {
+  default fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      // Forward pass stops here.
+      apply(self);
+    }
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      // Backward pass stops here.
+      apply(self);
+    }
+  }
+
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    // Do nothing, `data` belongs to `x`.
+  }
+
+  default fn _forward(&self, txn: TxnId) {
+  }
+
+  default fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+}
+
+pub struct IoOp<A> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  //x_:       Rc<ArrayOp<A>>,
+  x_:       RefCell<Option<Rc<AutodiffOp>>>,
+  data:     ArrayData<A>,
+}
+
+impl<A> IoOp<A> {
+  pub fn new(x_: Option<Rc<AutodiffOp>>, data: ArrayData<A>) -> Rc<Self>{
+    let node = NodeId::new();
+    Rc::new(IoOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:       RefCell::new(x_),
+      data:     data,
+    })
+  }
+}
+
+impl<A> ArrayOp<A> for IoOp<A> {
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.data
+  }
+}
+
+impl<A> AutodiffOp for IoOp<A> {
   default fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -700,13 +756,26 @@ impl<A> AutodiffOp for NoBwdPassOp<A> {
 
   default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
-      // Backward pass stops here.
       apply(self);
+      let x_ = self.x_.borrow();
+      x_.as_ref().unwrap()._pop(epoch, apply);
     }
   }
 
+  default fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+    unimplemented!();
+  }
+
+  default fn _store_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
+    unimplemented!();
+  }
+
+  default fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
+    unimplemented!();
+  }
+
   default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
-    // Do nothing, `data` belongs to `x`.
+    // TODO: `persist` semantics?
   }
 
   default fn _forward(&self, txn: TxnId) {
@@ -2157,6 +2226,8 @@ impl ConvShape<(usize, usize)> {
         let (pad_w, pad_h) = self.conv2d_pad_dim(in_dim);
         let out_w = max(0, (in_w + 2 * pad_w - kernel_w + stride_w) as isize) as usize / stride_w;
         let out_h = max(0, (in_h + 2 * pad_h - kernel_h + stride_h) as isize) as usize / stride_h;
+        assert!(out_w > 0);
+        assert!(out_h > 0);
         (out_w, out_h, self.filters.unwrap_or(in_dim.2))
       }
       _ => unimplemented!(),
@@ -2262,18 +2333,71 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
   }
 }
 
+#[derive(Clone, Copy)]
+pub struct PoolShape<Idx> where Idx: ArrayIndex {
+  pub axes:     Idx::Axes,
+  pub kernel:   Idx,
+  pub stride:   Idx,
+  pub zero_pad: bool,
+}
+
+impl PoolShape<(usize, usize)> {
+  pub fn pool2d_pad_dim(&self, in_dim: (usize, usize, usize)) -> (usize, usize) {
+    match self.zero_pad {
+      false => (0, 0),
+      true  => {
+        match self.axes {
+          // FIXME(20170309): this calculation ignores input and stride dimensions.
+          Axes((0, 1)) => (self.kernel.0 / 2, self.kernel.1 / 2),
+          _ => unimplemented!(),
+        }
+      }
+    }
+  }
+
+  pub fn pool2d_output_dim(&self, in_dim: (usize, usize, usize)) -> (usize, usize, usize) {
+    match self.axes {
+      Axes((0, 1)) => {
+        let (in_w, in_h, _) = in_dim;
+        let (kernel_w, kernel_h) = self.kernel;
+        let (stride_w, stride_h) = self.stride;
+        let (pad_w, pad_h) = self.pool2d_pad_dim(in_dim);
+        let out_w = max(0, (in_w + 2 * pad_w - kernel_w + stride_w) as isize) as usize / stride_w;
+        let out_h = max(0, (in_h + 2 * pad_h - kernel_h + stride_h) as isize) as usize / stride_h;
+        assert!(out_w > 0);
+        assert!(out_h > 0);
+        (out_w, out_h, in_dim.2)
+      }
+      _ => unimplemented!(),
+    }
+  }
+}
+
+pub trait PoolKernel {}
+
 pub struct AvgPool;
 pub struct MaxPool;
 
-pub trait PoolExt<Idx, V, Backend> where Idx: ArrayIndex {
-  fn avg_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<Idx, V, AvgPool, Backend>>;
-  fn max_pool(&self, shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>) -> Rc<PoolOp<Idx, V, MaxPool, Backend>>;
+impl PoolKernel for AvgPool {}
+impl PoolKernel for MaxPool {}
+
+pub trait PoolExt<Idx, V, Backend>: ArrayOp<V> where Idx: ArrayIndex {
+  fn avg_pool(shape: PoolShape<Idx>, x_: Rc<Self>) -> Rc<PoolOp<Idx, V, AvgPool, Backend>>;
+  fn max_pool(shape: PoolShape<Idx>, x_: Rc<Self>) -> Rc<PoolOp<Idx, V, MaxPool, Backend>>;
+}
+
+pub fn avg_pool<Op, Idx, V, Backend>(shape: PoolShape<Idx>, x_: Rc<Op>) -> Rc<PoolOp<Idx, V, AvgPool, Backend>> where Op: ArrayOp<V> + PoolExt<Idx, V, Backend>, Idx: ArrayIndex {
+  PoolExt::avg_pool(shape, x_)
+}
+
+pub fn max_pool<Op, Idx, V, Backend>(shape: PoolShape<Idx>, x_: Rc<Op>) -> Rc<PoolOp<Idx, V, MaxPool, Backend>> where Op: ArrayOp<V> + PoolExt<Idx, V, Backend>, Idx: ArrayIndex {
+  PoolExt::max_pool(shape, x_)
 }
 
 pub struct PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
   node_id:  NodeId,
   stack:    OperatorStack,
-  shape:    ConvShape<Idx>,
+  shape:    PoolShape<Idx>,
   x_:   Rc<ArrayOp<V>>,
   x:    ArrayData<V>,
   y:    ArrayData<V>,
@@ -2282,7 +2406,7 @@ pub struct PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
 }
 
 impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
-  pub fn new(shape: ConvShape<Idx>, x_: Rc<ArrayOp<V>>, kernel: Kernel, backend: Backend, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(shape: PoolShape<Idx>, x_: Rc<ArrayOp<V>>, kernel: Kernel, backend: Backend, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(PoolOp{
@@ -2297,6 +2421,25 @@ impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIn
       backend:  backend,
     })
   }
+}
+
+impl<Idx, V, Kernel, Backend> ArrayOp<V> for PoolOp<Idx, V, Kernel, Backend> where PoolOp<Idx, V, Kernel, Backend>: AutodiffOp, Idx: ArrayIndex {
+  fn _data(&self) -> &ArrayData<V> {
+    &self.x
+  }
+}
+
+pub struct GenPoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  shape:    PoolShape<Idx>,
+  x_:   Rc<ArrayOp<V>>,
+  sel_: Rc<ArrayOp<V>>,
+  x:    ArrayData<V>,
+  sel:  ArrayData<V>,
+  y:    ArrayData<V>,
+  kernel:   Kernel,
+  backend:  Backend,
 }
 
 #[derive(Clone, Copy)]

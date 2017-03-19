@@ -1,5 +1,5 @@
 pub use super::{
-  NodeId, TxnId, EpochNr, Epoch, OperatorStack, Var, VarSet,
+  NodeId, TxnId, EpochNr, Epoch, OperatorStack, Var, VarSet, Symbol,
   AutodiffOp, AutodiffSink,
   OutputData, OutputOp,
   NullIo,

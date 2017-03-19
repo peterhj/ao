@@ -171,6 +171,45 @@ extern "C" {
       x_grad: *mut f32,
       stream: cudaStream_t);
 
+  pub fn arraydiff_cuda_kernel_max_pool_fwd_f32(
+      x_w: usize, x_h: usize, chan_dim: usize, batch_sz: usize,
+      y_w: usize, y_h: usize,
+      kernel_w: usize, kernel_h: usize,
+      stride_w: usize, stride_h: usize,
+      pad_w: usize, pad_h: usize,
+      x: *const f32,
+      maybe_y: *mut f32,
+      maybe_mask: *mut i32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_max_pool_bwd_f32(
+      x_w: usize, x_h: usize, chan_dim: usize, batch_sz: usize,
+      y_w: usize, y_h: usize,
+      kernel_w: usize, kernel_h: usize,
+      stride_w: usize, stride_h: usize,
+      pad_w: usize, pad_h: usize,
+      dy: *const f32,
+      mask: *const i32,
+      dx: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_avg_pool_fwd_f32(
+      x_w: usize, x_h: usize, chan_dim: usize, batch_sz: usize,
+      y_w: usize, y_h: usize,
+      kernel_w: usize, kernel_h: usize,
+      stride_w: usize, stride_h: usize,
+      pad_w: usize, pad_h: usize,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_avg_pool_bwd_f32(
+      x_w: usize, x_h: usize, chan_dim: usize, batch_sz: usize,
+      y_w: usize, y_h: usize,
+      kernel_w: usize, kernel_h: usize,
+      stride_w: usize, stride_h: usize,
+      pad_w: usize, pad_h: usize,
+      dy: *const f32,
+      dx: *mut f32,
+      stream: cudaStream_t);
+
   pub fn arraydiff_cuda_kernel_blockreduce_max_argmax_f32(
       block_dim: usize,
       num_blocks: usize,

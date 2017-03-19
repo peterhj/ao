@@ -194,6 +194,7 @@ pub enum VarKind {
   Grad,
   RVal,
   RGrad,
+  Val2,
   Grad2,
 }
 
@@ -296,7 +297,8 @@ pub trait AutodiffOp {
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
 
-  fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { unimplemented!(); }
+  //fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { unimplemented!(); }
+  fn _copy_val(&self, _dst_txn: TxnId, _dst_vars: &mut VarSet, _src_txn: TxnId, _src_vars: &mut VarSet, offset: usize, _src: &AutodiffOp) -> usize { offset }
   fn _load_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _reader: &mut Any) -> usize { offset }
   fn _load_r_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _reader: &mut Any) -> usize { offset }
   fn _store_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _writer: &mut Any) -> usize { offset }
@@ -432,12 +434,6 @@ pub trait AutodiffOp {
     vars.unmask_all();
   }
 
-  fn eval(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
-  }
-
   fn reset_clock(&self) {
     let epoch = Epoch::new(self._id());
     self._push(epoch, &mut |op| { op._reset_clock(); });
@@ -447,6 +443,12 @@ pub trait AutodiffOp {
   fn set_clock(&self, clk: usize) {
     let epoch = Epoch::new(self._id());
     self._push(epoch, &mut |op| { op._set_clock(clk); });
+    self._pop(epoch, &mut |_op| {});
+  }
+
+  fn eval(&self, txn: TxnId) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |op| { op._forward(txn); });
     self._pop(epoch, &mut |_op| {});
   }
 }
@@ -481,10 +483,10 @@ pub trait AutodiffSink: AutodiffOp {
     self._set_source(txn);
     self._push(epoch, &mut |op| { op._forward(txn); });
     self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |op| { op._r_forward(txn, false); });
-    self._pop(epoch, &mut |_op| {});
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self._push(epoch, &mut |op| { op._r_forward(txn, false); });
+    self._pop(epoch, &mut |_op| {});
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| { op._r_backward(txn); });
   }
@@ -1073,7 +1075,7 @@ impl<A> TxnVar<A> {
   }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+/*#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum DerivativeKey {
   Val,
   Grad(usize),
@@ -1098,7 +1100,7 @@ pub fn r_val_key() -> DerivativeKey {
 
 pub fn r_grad_key() -> DerivativeKey {
   DerivativeKey::DirectGrad{order: 2, index: 0}
-}
+}*/
 
 pub struct ArrayData<A> {
   symbol:       Symbol,
@@ -1108,6 +1110,7 @@ pub struct ArrayData<A> {
   pub grad:     TxnVar<A>,
   pub r_val:    TxnVar<A>,
   pub r_grad:   TxnVar<A>,
+  pub val2:     TxnVar<A>,
   pub grad2:    TxnVar<A>,
 }
 
@@ -1121,6 +1124,7 @@ impl<A> Clone for ArrayData<A> {
       grad:         self.grad.dup(new_symbol),
       r_val:        self.r_val.dup(new_symbol),
       r_grad:       self.r_grad.dup(new_symbol),
+      val2:         self.grad2.dup(new_symbol),
       grad2:        self.grad2.dup(new_symbol),
     }
   }
@@ -1136,6 +1140,7 @@ impl<A> ArrayData<A> {
       grad:     TxnVar::new(symbol, Grad,   clk_horizon, alloc.clone()),
       r_val:    TxnVar::new(symbol, RVal,   clk_horizon, alloc.clone()),
       r_grad:   TxnVar::new(symbol, RGrad,  clk_horizon, alloc.clone()),
+      val2:     TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),
       grad2:    TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),
     }
   }
@@ -1150,6 +1155,7 @@ impl<A> ArrayData<A> {
       .add(self.grad.var())
       .add(self.r_val.var())
       .add(self.r_grad.var())
+      .add(self.val2.var())
       .add(self.grad2.var())
   }
 
@@ -1158,6 +1164,7 @@ impl<A> ArrayData<A> {
     self.grad.reset_clock();
     self.r_val.reset_clock();
     self.r_grad.reset_clock();
+    self.val2.reset_clock();
     self.grad2.reset_clock();
   }
 
@@ -1166,6 +1173,7 @@ impl<A> ArrayData<A> {
     self.grad.set_clock(clk);
     self.r_val.set_clock(clk);
     self.r_grad.set_clock(clk);
+    self.val2.set_clock(clk);
     self.grad2.set_clock(clk);
   }
 
@@ -1174,6 +1182,7 @@ impl<A> ArrayData<A> {
     self.grad.rollover(txn, vars);
     self.r_val.rollover(txn, vars);
     self.r_grad.rollover(txn, vars);
+    self.val2.rollover(txn, vars);
     self.grad2.rollover(txn, vars);
   }
 }
