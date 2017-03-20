@@ -44,6 +44,10 @@ impl IoBuf for DeviceArray1d<f32> {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().load_sync(reader[offset .. offset + buf_len].flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
+    } else if reader.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let reader = reader.downcast_mut::<DeviceMem<f32>>().unwrap();
+      dst.as_view_mut().copy(reader.as_ref().slice(offset, offset + buf_len).flatten(), DeviceStream::implicit().conn());
+      offset += buf_len;
     } else {
       panic!("store: unimplemented reader type: {:?}", reader);
     }
@@ -57,6 +61,10 @@ impl IoBuf for DeviceArray1d<f32> {
     } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       src.as_view().store_sync(writer[offset .. offset + buf_len].flatten_mut(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else if writer.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let writer = writer.downcast_mut::<DeviceMem<f32>>().unwrap();
+      writer.as_mut().slice_mut(offset, offset + buf_len).flatten_mut().copy(src.as_view(), DeviceStream::implicit().conn());
       offset += buf_len;
     } else {
       panic!("store: unimplemented writer type: {:?}", writer);
@@ -74,6 +82,10 @@ impl IoBuf for DeviceArray2d<f32> {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().flatten_mut().load_sync(reader[offset .. offset + buf_len].flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
+    } else if reader.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let reader = reader.downcast_mut::<DeviceMem<f32>>().unwrap();
+      dst.as_view_mut().flatten_mut().copy(reader.as_ref().slice(offset, offset + buf_len).flatten(), DeviceStream::implicit().conn());
+      offset += buf_len;
     } else {
       panic!("store: unimplemented reader type: {:?}", reader);
     }
@@ -87,6 +99,10 @@ impl IoBuf for DeviceArray2d<f32> {
     } else if writer.downcast_mut::<Vec<f32>>().is_some() {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       src.as_view().flatten().store_sync(writer[offset .. offset + buf_len].flatten_mut(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else if writer.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let writer = writer.downcast_mut::<DeviceMem<f32>>().unwrap();
+      writer.as_mut().slice_mut(offset, offset + buf_len).flatten_mut().copy(src.as_view().flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
     } else {
       panic!("store: unimplemented writer type: {:?}", writer);

@@ -326,6 +326,7 @@ pub trait AutodiffOp {
   fn _init(&self, _txn: TxnId, _seed_rng: Rc<RefCell<ChaChaRng>>) {}
   fn _forward(&self, txn: TxnId);
   fn _backward(&self, _txn: TxnId, _gauss_newton: bool) { unimplemented!(); }
+  fn _backward_store_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { unimplemented!(); }
   fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) { unimplemented!(); }
   fn _r_backward(&self, _txn: TxnId) { unimplemented!(); }
   fn _backward2(&self, _txn: TxnId) { unimplemented!(); }
