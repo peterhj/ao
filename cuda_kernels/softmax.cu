@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+#include "common.cuh"
 #include <cuda_runtime_api.h>
 #include <math_constants.h>
 #include <stdint.h>
 #include <stdlib.h>
 
-#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) & 31)); })
+//#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) & 31)); })
 
 __global__ void block_softmax_fwd(
     uint32_t block_dim,
@@ -27,8 +28,8 @@ __global__ void block_softmax_fwd(
     const float *x,
     float *y)
 {
-  __shared__ float cache[1024 + 32];
-  //__shared__ uint32_t cache_idx[1024 + 32];
+  __shared__ float cache[1024];
+  //__shared__ uint32_t cache_idx[1024];
   //__shared__ float result[1];
   uint32_t tid = threadIdx.x;
   uint32_t block = blockIdx.x;
@@ -37,12 +38,12 @@ __global__ void block_softmax_fwd(
   float x_i = 0.0f;
   if (tid < block_dim && block < num_blocks) {
     x_i = x[i];
-    cache[OFFSET_BANK(tid)] = x_i;
+    cache[tid] = x_i;
   } else {
-    cache[OFFSET_BANK(tid)] = -CUDART_INF_F;
+    cache[tid] = -CUDART_INF_F;
   }
   __syncthreads();
-  for (uint32_t s = 1; s < 1024; s *= 2) {
+  /*for (uint32_t s = 1; s < 1024; s *= 2) {
     if (tid < block_dim && block < num_blocks) {
       if ((tid & (2 * s - 1)) == 0 && (tid + s) < block_dim) {
         if (cache[OFFSET_BANK(tid)] < cache[OFFSET_BANK(tid + s)]) {
@@ -51,26 +52,28 @@ __global__ void block_softmax_fwd(
       }
     }
     __syncthreads();
-  }
+  }*/
+  threadblock1024_reduce_max_f32(cache);
   float max_logit = cache[0];
   __syncthreads();
 
   float z_i = 0.0f;
   if (tid < block_dim && block < num_blocks) {
     z_i = expf(x_i - max_logit);
-    cache[OFFSET_BANK(tid)] = z_i;
+    cache[tid] = z_i;
   } else {
-    cache[OFFSET_BANK(tid)] = 0.0f;
+    cache[tid] = 0.0f;
   }
   __syncthreads();
-  for (uint32_t s = 1; s < 1024; s *= 2) {
+  /*for (uint32_t s = 1; s < 1024; s *= 2) {
     if (tid < block_dim && block < num_blocks) {
       if ((tid & (2 * s - 1)) == 0 && (tid + s) < block_dim) {
         cache[OFFSET_BANK(tid)] += cache[OFFSET_BANK(tid + s)];
       }
     }
     __syncthreads();
-  }
+  }*/
+  threadblock1024_reduce_sum_f32(cache);
   float sum_factor = cache[0];
   __syncthreads();
 

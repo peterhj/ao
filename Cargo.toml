@@ -17,6 +17,7 @@ gcc = "*"
 walkdir = "*"
 
 [dependencies]
+lazy_static = "*"
 libc = "*"
 rand = "*"
 #arithmetic = { path = "../libarithmetic" }

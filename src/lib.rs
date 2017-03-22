@@ -26,6 +26,7 @@ extern crate densearray;
 extern crate fnv;
 extern crate rng;
 
+#[macro_use] extern crate lazy_static;
 extern crate libc;
 extern crate rand;
 
@@ -40,6 +41,7 @@ use rand::chacha::{ChaChaRng};
 use std::any::{Any};
 use std::cell::{Cell, RefCell, Ref, RefMut};
 //use std::collections::{HashMap, HashSet};
+use std::env;
 use std::ops::{Deref, DerefMut};
 use std::rc::{Rc};
 use std::sync::{Arc};
@@ -48,10 +50,30 @@ pub mod ffi;
 pub mod ops;
 pub mod prelude;
 
+lazy_static! {
+  pub static ref GLOBAL_CONFIG: GlobalConfig = GlobalConfig::default();
+}
+
 thread_local!(static NODE_ID_COUNTER: Cell<u64> = Cell::new(0));
 thread_local!(static TXN_ID_COUNTER:  Cell<u64> = Cell::new(0));
 thread_local!(static EPOCH_COUNTER:   Cell<u64> = Cell::new(0));
 thread_local!(static CLK_DOM_COUNTER: Cell<u64> = Cell::new(0));
+
+pub struct GlobalConfig {
+  pub deterministic:    bool,
+}
+
+impl Default for GlobalConfig {
+  fn default() -> Self {
+    GlobalConfig{
+      deterministic:    {
+        env::var("ARRAYDIFF_CFG_DETERMINISTIC").ok()
+          .and_then(|value| value.parse().ok())
+          .unwrap_or(false)
+      },
+    }
+  }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(u64);

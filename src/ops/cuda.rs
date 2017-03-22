@@ -383,6 +383,80 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
   }
 }
 
+impl AutodiffOp for PassOp<DeviceIoBatch<f32>> {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
+      unimplemented!();
+    }
+    offset
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
+      if writer.downcast_mut::<Vec<f32>>().is_some() {
+        let dst_buf = writer.downcast_mut::<Vec<f32>>().unwrap();
+        let batch_sz = val.batch_size();
+        val.as_ref().store_sync(&mut dst_buf[ .. batch_sz], DeviceStream::implicit().conn());
+        offset += batch_sz;
+      } else {
+        panic!("store: unimplemented writer type: {:?}", writer);
+      }
+    }
+    offset
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      unimplemented!();
+    }
+    offset
+  }
+
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      let x_ = self.x_.borrow();
+      x_.as_ref().unwrap()._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      let x_ = self.x_.borrow();
+      apply(self);
+      x_.as_ref().unwrap()._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_backward(&self, _txn: TxnId) {
+  }
+
+  fn _backward2(&self, _txn: TxnId) {
+  }
+}
+
 impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
@@ -1871,18 +1945,33 @@ impl AutodiffOp for ElemLinearOp<DeviceArray1d<f32>, DeviceBatchArray3d<f32>, Br
         let chan_dim = x_dim.2;
         let conn = DeviceStream::implicit().conn();
         // TODO: wait/post.
-        unsafe { arraydiff_cuda_kernel_conv_bcast_mult_add_param_bwd_atomic_f32(
-            spatial_dim,
-            chan_dim,
-            batch_sz,
-            self.x.val.get(txn, node).as_view().as_ptr(),
-            self.a.val.get(txn, node).as_view().as_ptr(),
-            b.val.get(txn, node).as_view().as_ptr(),
-            self.y.grad.get(txn, node).as_view().as_ptr(),
-            self.a.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-            b.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-            conn.raw_stream().as_ptr(),
-        ) };
+        if GLOBAL_CONFIG.deterministic {
+          unsafe { arraydiff_cuda_kernel_conv_bcast_mult_add_param_bwd_nonatomic_f32(
+              spatial_dim,
+              chan_dim,
+              batch_sz,
+              self.x.val.get(txn, node).as_view().as_ptr(),
+              self.a.val.get(txn, node).as_view().as_ptr(),
+              b.val.get(txn, node).as_view().as_ptr(),
+              self.y.grad.get(txn, node).as_view().as_ptr(),
+              self.a.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              b.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              conn.raw_stream().as_ptr(),
+          ) };
+        } else {
+          unsafe { arraydiff_cuda_kernel_conv_bcast_mult_add_param_bwd_atomic_f32(
+              spatial_dim,
+              chan_dim,
+              batch_sz,
+              self.x.val.get(txn, node).as_view().as_ptr(),
+              self.a.val.get(txn, node).as_view().as_ptr(),
+              b.val.get(txn, node).as_view().as_ptr(),
+              self.y.grad.get(txn, node).as_view().as_ptr(),
+              self.a.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              b.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+              conn.raw_stream().as_ptr(),
+          ) };
+        }
       }
     } else {
       if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
@@ -2015,18 +2104,33 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
           self.var.val.get(txn, node).as_view().wait(&conn);
           self.y.grad.get(txn, node).as_view().wait(&conn);
           self.var.grad.get_mut(txn, node).as_view().wait(&conn);
-          unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_atomic_f32(
-              spatial_dim,
-              chan_dim,
-              batch_sz,
-              self.x.val.get(txn, node).as_view().as_ptr(),
-              self.mean.val.get(txn, node).as_view().as_ptr(),
-              self.var.val.get(txn, node).as_view().as_ptr(),
-              self.y.grad.get(txn, node).as_view().as_ptr(),
-              self.epsilon as f32,
-              self.var.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-              conn.raw_stream().as_ptr(),
-          ) };
+          if GLOBAL_CONFIG.deterministic {
+            unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_nonatomic_f32(
+                spatial_dim,
+                chan_dim,
+                batch_sz,
+                self.x.val.get(txn, node).as_view().as_ptr(),
+                self.mean.val.get(txn, node).as_view().as_ptr(),
+                self.var.val.get(txn, node).as_view().as_ptr(),
+                self.y.grad.get(txn, node).as_view().as_ptr(),
+                self.epsilon as f32,
+                self.var.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+                conn.raw_stream().as_ptr(),
+            ) };
+          } else {
+            unsafe { arraydiff_cuda_kernel_conv_normalize_var_bwd_atomic_f32(
+                spatial_dim,
+                chan_dim,
+                batch_sz,
+                self.x.val.get(txn, node).as_view().as_ptr(),
+                self.mean.val.get(txn, node).as_view().as_ptr(),
+                self.var.val.get(txn, node).as_view().as_ptr(),
+                self.y.grad.get(txn, node).as_view().as_ptr(),
+                self.epsilon as f32,
+                self.var.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+                conn.raw_stream().as_ptr(),
+            ) };
+          }
           self.x.val.get(txn, node).as_view().post(&conn);
           self.mean.val.get(txn, node).as_view().post(&conn);
           self.var.val.get(txn, node).as_view().post(&conn);
@@ -2041,6 +2145,21 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
           self.var.grad.get_mut(txn, node).as_view().wait(&conn);
           self.y.grad.get(txn, node).as_view().wait(&conn);
           self.mean.grad.get_mut(txn, node).as_view().wait(&conn);
+          if GLOBAL_CONFIG.deterministic {
+            unsafe { arraydiff_cuda_kernel_conv_normalize_mean_bwd_nonatomic_f32(
+                spatial_dim,
+                chan_dim,
+                batch_sz,
+                self.x.val.get(txn, node).as_view().as_ptr(),
+                self.mean.val.get(txn, node).as_view().as_ptr(),
+                self.var.val.get(txn, node).as_view().as_ptr(),
+                self.var.grad.get_mut(txn, node).as_view().as_ptr(),
+                self.y.grad.get(txn, node).as_view().as_ptr(),
+                self.epsilon as f32,
+                self.mean.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+                conn.raw_stream().as_ptr(),
+            ) };
+          } else {
           unsafe { arraydiff_cuda_kernel_conv_normalize_mean_bwd_atomic_f32(
               spatial_dim,
               chan_dim,
@@ -2054,6 +2173,7 @@ impl AutodiffOp for ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBa
               self.mean.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
               conn.raw_stream().as_ptr(),
           ) };
+          }
           self.x.val.get(txn, node).as_view().post(&conn);
           self.mean.val.get(txn, node).as_view().post(&conn);
           self.var.val.get(txn, node).as_view().post(&conn);
@@ -2202,22 +2322,43 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
             &*conn.cudnn(),
         ).unwrap();
         workspace_size = max(workspace_size, fwd.work_size);
-        let bwd_w = CudnnConvBwdFilterOp::create_fastest(
-            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
-            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
-            CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
-            CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
-            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
-            &*conn.cudnn(),
-        ).unwrap();
+        let bwd_w = if GLOBAL_CONFIG.deterministic {
+          CudnnConvBwdFilterOp::create_deterministic(
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+              CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+              CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
+              &*conn.cudnn(),
+          ).unwrap()
+        } else {
+          CudnnConvBwdFilterOp::create_fastest(
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+              CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+              CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
+              &*conn.cudnn(),
+          ).unwrap()
+        };
         workspace_size = max(workspace_size, bwd_w.work_size);
-        let bwd_d = CudnnConvBwdDataOp::create_fastest(
-            CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
-            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
-            CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
-            CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
-            &*conn.cudnn(),
-        ).unwrap();
+        let bwd_d = if GLOBAL_CONFIG.deterministic {
+          CudnnConvBwdDataOp::create_deterministic(
+              CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+              CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+              &*conn.cudnn(),
+          ).unwrap()
+        } else {
+          CudnnConvBwdDataOp::create_fastest(
+              CudnnFilterDesc::<f32>::create_4d(kernel_w, kernel_h, in_chan, out_chan).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, out_w, out_h, out_chan, batch_sz).unwrap(),
+              CudnnConvDesc::create_2d(stride_w, stride_h, pad_w, pad_h).unwrap(),
+              CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, in_w, in_h, in_chan, batch_sz).unwrap(),
+              &*conn.cudnn(),
+          ).unwrap()
+        };
         workspace_size = max(workspace_size, bwd_d.work_size);
         let add = CudnnAddOp::new(
             CudnnTensorDesc::<f32>::create_4d(CudnnTensorLayout::NCHW, 1, 1, out_chan, 1).unwrap(),
@@ -2232,6 +2373,7 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
           add:      add,
         };
         sizes.insert(batch_sz, conv);
+        // FIXME FIXME FIXME(20170321): resizing the global scratch is really bad!
         if workspace_size > self.backend.scratch_sz.get() {
           self.backend.scratch_sz.set(workspace_size);
           *self.backend.scratch.borrow_mut() = DeviceMem::zeros(workspace_size, conn);
@@ -2298,6 +2440,22 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
       self.y.grad.get(txn, node).as_view().post(&conn);
       self.a.grad.get_mut(txn, node).as_view_mut().post(&conn);
     }
+    if let Some(ref b) = self.b {
+      if b.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+        let conn = DeviceStream::implicit().conn();
+        self.y.grad.get(txn, node).as_view().wait(&conn);
+        b.grad.get_mut(txn, node).as_view_mut().wait(&conn);
+        unsafe { conv.bwd_w.backward_bias(
+            1.0,
+            self.y.grad.get(txn, node).as_view().as_ptr(),
+            1.0,
+            b.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+            &*conn.cudnn(),
+        ).unwrap() };
+        self.y.grad.get(txn, node).as_view().post(&conn);
+        b.grad.get_mut(txn, node).as_view_mut().post(&conn);
+      }
+    }
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       let conn = DeviceStream::implicit().conn();
       self.a.val.get(txn, node).as_view().wait(&conn);
@@ -2315,22 +2473,6 @@ impl AutodiffOp for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32
       self.a.val.get(txn, node).as_view().post(&conn);
       self.y.grad.get(txn, node).as_view().post(&conn);
       self.x.grad.get_mut(txn, node).as_view_mut().post(&conn);
-    }
-    if let Some(ref b) = self.b {
-      if b.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-        let conn = DeviceStream::implicit().conn();
-        self.y.grad.get(txn, node).as_view().wait(&conn);
-        b.grad.get_mut(txn, node).as_view_mut().wait(&conn);
-        unsafe { conv.bwd_w.backward_bias(
-            1.0,
-            self.y.grad.get(txn, node).as_view().as_ptr(),
-            1.0,
-            b.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
-            &*conn.cudnn(),
-        ).unwrap() };
-        self.y.grad.get(txn, node).as_view().post(&conn);
-        b.grad.get_mut(txn, node).as_view_mut().post(&conn);
-      }
     }
   }
 
@@ -2938,14 +3080,25 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               let conn = DeviceStream::implicit().conn();
               self.x.val.get(txn, node).as_view().wait(&conn);
               self.mean.val.get_excl(txn, node).as_view().wait(&conn);
-              unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_atomic_f32(
-                  spatial_dim,
-                  chan_dim,
-                  batch_sz,
-                  self.x.val.get(txn, node).as_view().as_ptr(),
-                  self.mean.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
-                  conn.raw_stream().as_ptr(),
-              ) };
+              if GLOBAL_CONFIG.deterministic {
+                unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_nonatomic_f32(
+                    spatial_dim,
+                    chan_dim,
+                    batch_sz,
+                    self.x.val.get(txn, node).as_view().as_ptr(),
+                    self.mean.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+                    conn.raw_stream().as_ptr(),
+                ) };
+              } else {
+                unsafe { arraydiff_cuda_kernel_conv_batch_stats_mean_fwd_atomic_f32(
+                    spatial_dim,
+                    chan_dim,
+                    batch_sz,
+                    self.x.val.get(txn, node).as_view().as_ptr(),
+                    self.mean.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+                    conn.raw_stream().as_ptr(),
+                ) };
+              }
               self.x.val.get(txn, node).as_view().post(&conn);
               self.mean.val.get_excl(txn, node).as_view().post(&conn);
             }
@@ -2963,15 +3116,27 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
               self.x.val.get(txn, node).as_view().wait(&conn);
               self.mean.val.get_excl(txn, node).as_view().wait(&conn);
               self.var.val.get_excl(txn, node).as_view().wait(&conn);
-              unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_atomic_f32(
-                  spatial_dim,
-                  chan_dim,
-                  batch_sz,
-                  self.x.val.get(txn, node).as_view().as_ptr(),
-                  self.mean.val.get_excl(txn, node).as_view().as_ptr(),
-                  self.var.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
-                  conn.raw_stream().as_ptr(),
-              ) };
+              if GLOBAL_CONFIG.deterministic {
+                unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_nonatomic_f32(
+                    spatial_dim,
+                    chan_dim,
+                    batch_sz,
+                    self.x.val.get(txn, node).as_view().as_ptr(),
+                    self.mean.val.get_excl(txn, node).as_view().as_ptr(),
+                    self.var.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+                    conn.raw_stream().as_ptr(),
+                ) };
+              } else {
+                unsafe { arraydiff_cuda_kernel_conv_batch_stats_var_fwd_atomic_f32(
+                    spatial_dim,
+                    chan_dim,
+                    batch_sz,
+                    self.x.val.get(txn, node).as_view().as_ptr(),
+                    self.mean.val.get_excl(txn, node).as_view().as_ptr(),
+                    self.var.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+                    conn.raw_stream().as_ptr(),
+                ) };
+              }
               self.x.val.get(txn, node).as_view().post(&conn);
               self.mean.val.get_excl(txn, node).as_view().post(&conn);
               self.var.val.get_excl(txn, node).as_view().post(&conn);
