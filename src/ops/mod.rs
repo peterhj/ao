@@ -997,21 +997,47 @@ impl<S> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<Ref
   }
 }
 
-pub struct BranchOp<Cond, On, Off, Data> {
+pub struct BranchOp<Cond, Off, On, Data> {
   node_id:  NodeId,
   stack:    OperatorStack,
   cond:     Cond,
-  on_:      On,
   off_:     Off,
-  on:       Data,
+  on_:      On,
   off:      Data,
+  on:       Data,
   output:   Data,
+}
+
+impl<Cond, A> BranchOp<Cond, Rc<ArrayOp<A>>, Rc<ArrayOp<A>>, ArrayData<A>> {
+  //pub fn new<On, Off, F>(cond: Cond, on_: Rc<On>, off_: Rc<Off>, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where On: 'static + ArrayOp<A>, Off: 'static + ArrayOp<A>, F: 'static + Fn(TxnId, NodeId) -> A {
+  pub fn new<Off, On>(cond: Cond, off_: Rc<Off>, on_: Rc<On>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> where On: 'static + ArrayOp<A>, Off: 'static + ArrayOp<A> {
+  //pub fn new(cond: Cond, on_: Rc<ArrayOp<A>>, off_: Rc<ArrayOp<A>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> {
+    let node = NodeId::new();
+    let on = on_.data();
+    let off = off_.data();
+    Rc::new(BranchOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      cond:     cond,
+      off_:     ArrayOp::from(off_),
+      on_:      ArrayOp::from(on_),
+      off:      off,
+      on:       on,
+      output:   ArrayData::new(clk_horizon, alloc),
+    })
+  }
 }
 
 impl<Cond, On, Off, Data> OutputOp for BranchOp<Cond, On, Off, Data> where BranchOp<Cond, On, Off, Data>: AutodiffOp, Data: OutputData {
   type Data = Data;
 
   fn _own_data(&self) -> &Data {
+    &self.output
+  }
+}
+
+impl<Cond, On, Off, A> ArrayOp<A> for BranchOp<Cond, On, Off, ArrayData<A>> where BranchOp<Cond, On, Off, ArrayData<A>>: AutodiffOp {
+  fn _data(&self) -> &ArrayData<A> {
     &self.output
   }
 }
@@ -2507,23 +2533,25 @@ pub struct BatchStatsState<Idx> where Idx: ArrayIndex {
   pub cfg:          BatchStatsConfig,
   pub curr_txn:     Option<TxnId>,
   pub inner_mode:   BatchStatsMode,
+  pub mode:         Rc<CopyConstant<bool>>,
   pub batch_ct:     usize,
   pub update_ct:    usize,
 }
 
 impl<Idx> BatchStatsState<Idx> where Idx: ArrayIndex {
-  pub fn new(reduce_axes: Idx::Axes, cfg: BatchStatsConfig) -> Self {
+  pub fn new(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, mode: Rc<CopyConstant<bool>>) -> Self {
     BatchStatsState{
       reduce_axes:  reduce_axes,
       cfg:          cfg,
       curr_txn:     None,
       inner_mode:   BatchStatsMode::PassThrough,
+      mode:         mode,
       batch_ct:     0,
       update_ct:    0,
     }
   }
 
-  pub fn get_mode(&mut self, txn: TxnId) -> BatchStatsMode {
+  /*pub fn get_mode(&mut self, txn: TxnId) -> BatchStatsMode {
     match self.curr_txn {
       None => {
         self.curr_txn = Some(txn);
@@ -2552,16 +2580,33 @@ impl<Idx> BatchStatsState<Idx> where Idx: ArrayIndex {
         }
       }
     }
-  }
+  }*/
 }
 
 pub struct BatchStatsControl {
+  mode: Rc<CopyConstant<bool>>,
   ops:  Vec<Rc<BatchStatsOpExt>>,
 }
 
 impl BatchStatsControl {
   pub fn new() -> Self {
-    BatchStatsControl{ops: vec![]}
+    BatchStatsControl{
+      mode: Rc::new(CopyConstant{var: TxnCopyVar::new()}),
+      ops:  vec![],
+    }
+  }
+
+  pub fn mode(&self) -> Rc<CopyConstant<bool>> {
+    self.mode.clone()
+  }
+
+  pub fn set_mode(&self, txn: TxnId, mode_value: bool) {
+    self.mode.var.set(txn, mode_value);
+  }
+
+  pub fn get_mode(&self, txn: TxnId) -> bool {
+    self.mode.var.persist(txn);
+    self.mode.var.get(txn)
   }
 
   pub fn configure(&self, f: &Fn(&mut BatchStatsConfig)) {
@@ -2570,23 +2615,11 @@ impl BatchStatsControl {
     }
   }
 
-  pub fn set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
-    for op in self.ops.iter() {
-      op._set_mode(txn, mode);
-    }
-  }
-
   pub fn accumulate(&self, txn: TxnId) {
     for op in self.ops.iter() {
       op._accumulate(txn);
     }
   }
-
-  /*pub fn clear_accumulators(&self, txn: TxnId) {
-    for op in self.ops.iter() {
-      op._clear_accumulators(txn);
-    }
-  }*/
 
   pub fn update_stats(&self, prev_txn: TxnId, next_txn: TxnId) {
     for op in self.ops.iter() {
@@ -2597,9 +2630,7 @@ impl BatchStatsControl {
 
 pub trait BatchStatsOpExt {
   fn _configure(&self, f: &Fn(&mut BatchStatsConfig));
-  fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode);
   fn _accumulate(&self, txn: TxnId);
-  //fn _clear_accumulators(&self, txn: TxnId);
   fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId);
 }
 
@@ -2609,12 +2640,19 @@ pub struct BatchStatsOutput<M> {
   pub var:      Rc<ArrayOp<M>>,
   pub mean_run: Rc<ArrayOp<M>>,
   pub var_run:  Rc<ArrayOp<M>>,
+  pub mean_branch:  Rc<BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, ArrayData<M>>>,
+  pub var_branch:   Rc<BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, ArrayData<M>>>,
+  // TODO: expose accumulators as well for block reductions.
 }
 
 #[derive(Clone)]
 pub struct BatchStatsOutputNew<M> {
-  pub mean: Rc<BranchOp<CopyConstant<bool>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, M>>,
-  pub var:  Rc<BranchOp<CopyConstant<bool>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, M>>,
+  pub mean:     Rc<BranchOp<CopyConstant<bool>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, M>>,
+  pub var:      Rc<BranchOp<CopyConstant<bool>, Rc<ArrayOp<M>>, Rc<ArrayOp<M>>, M>>,
+  pub batch_mean:   VarSet,
+  pub batch_var:    VarSet,
+  pub running_mean: VarSet,
+  pub running_var:  VarSet,
 }
 
 pub trait BatchStatsExt<Idx, A, M> where Idx: ArrayIndex {
@@ -2633,9 +2671,11 @@ pub struct BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
   mean_:        Weak<PassOp<M>>,
   mean_acc_:    Rc<ArraySrc<M>>,
   mean_run_:    Rc<ArraySrc<M>>,
+  //mean_branch_: Rc<ArrayOp<M>>,
   var_:         Weak<PassOp<M>>,
   var_acc_:     Rc<ArraySrc<M>>,
   var_run_:     Rc<ArraySrc<M>>,
+  //var_branch_:  Rc<ArrayOp<M>>,
   x:            ArrayData<A>,
   mean:         ArrayData<M>,
   mean_acc:     ArrayData<M>,
@@ -2658,6 +2698,8 @@ impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffO
     let mean_run_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
     let var_acc_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
     let var_run_ = ArraySrc::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
+    let mean_branch_ = BranchOp::new(ctrl.mode.clone(), mean_.clone(), mean_run_.clone(), clk_horizon, alloc.clone());
+    let var_branch_ = BranchOp::new(ctrl.mode.clone(), var_.clone(), var_run_.clone(), clk_horizon, alloc.clone());
     let mean_acc = mean_acc_.data();
     let mean_run = mean_run_.data();
     let var_acc = var_acc_.data();
@@ -2665,14 +2707,16 @@ impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffO
     let op = Rc::new(BatchStatsOp{
       node_id:  node,
       stack:    OperatorStack::new(node, 1),
-      state:    RefCell::new(BatchStatsState::new(reduce_axes, cfg)),
+      state:    RefCell::new(BatchStatsState::new(reduce_axes, cfg, ctrl.mode.clone())),
       x_:           x_,
       mean_:        Rc::downgrade(&mean_),
       mean_acc_:    mean_acc_,
       mean_run_:    mean_run_.clone(),
+      //mean_branch_: mean_branch_.clone(),
       var_:         Rc::downgrade(&var_),
       var_acc_:     var_acc_,
       var_run_:     var_run_.clone(),
+      //var_branch_:  var_branch_.clone(),
       x:            x,
       mean:         mean,
       mean_acc:     mean_acc,
@@ -2689,22 +2733,10 @@ impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AutodiffO
       var:      var_,
       mean_run: mean_run_,
       var_run:  var_run_,
+      mean_branch:  mean_branch_,
+      var_branch:   var_branch_,
     }
   }
-
-  /*pub fn mean(&self) -> Rc<PassOp<M>> {
-    match Weak::upgrade(&self.mean_op) {
-      None => panic!(),
-      Some(op) => op,
-    }
-  }
-
-  pub fn var(&self) -> Rc<PassOp<M>> {
-    match Weak::upgrade(&self.var_op) {
-      None => panic!(),
-      Some(op) => op,
-    }
-  }*/
 }
 
 //impl<Idx, A, M> BatchStatsOpExt for BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
@@ -2713,11 +2745,6 @@ impl<S> BatchStatsOpExt for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, A
     // FIXME(20170214): only safe to mutate state at the beginning of a txn.
     let mut state = self.state.borrow_mut();
     reconf(&mut state.cfg);
-  }
-
-  fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
-    let mut state = self.state.borrow_mut();
-    state.set_mode(txn, mode);
   }
 
   fn _accumulate(&self, txn: TxnId) {
@@ -2738,10 +2765,6 @@ impl<S> BatchStatsOpExt for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, A
     }
     state.batch_ct += 1;
   }
-
-  /*fn _clear_accumulators(&self, prev_txn: TxnId, next_txn: TxnId) {
-    unimplemented!();
-  }*/
 
   fn _update_stats(&self, prev_txn: TxnId, next_txn: TxnId) {
     let node = self._id();

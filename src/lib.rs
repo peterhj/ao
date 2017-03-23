@@ -68,7 +68,13 @@ impl Default for GlobalConfig {
     GlobalConfig{
       deterministic:    {
         env::var("ARRAYDIFF_CFG_DETERMINISTIC").ok()
-          .and_then(|value| value.parse().ok())
+          .and_then(|value| match value.parse() {
+            Err(_) => {
+              println!("failed to parse 'deterministic' config key: accepted values are 'false' and 'true'");
+              None
+            }
+            Ok(x) => Some(x),
+          })
           .unwrap_or(false)
       },
     }
@@ -736,19 +742,35 @@ pub struct TxnCopyVar<A> where A: Copy {
 }
 
 impl<A> TxnCopyVar<A> where A: Copy {
+  pub fn new() -> Self {
+    TxnCopyVar{
+      curr_txn: Cell::new(None),
+      value:    Cell::new(None),
+    }
+  }
+
+  pub fn persist(&self, txn: TxnId) {
+    match self.curr_txn.get() {
+      None => {
+        self.curr_txn.set(Some(txn));
+        self.value.set(None);
+      }
+      Some(_) => {
+        self.curr_txn.set(Some(txn));
+      }
+    }
+  }
+
   pub fn get(&self, txn: TxnId) -> A {
     match self.curr_txn.get() {
       None => {
-        panic!();
+        panic!("the `TxnCopyVar` is invalid");
       }
       Some(prev_txn) => {
-        if prev_txn != txn {
-          panic!();
-        } else {
-          match self.value.get() {
-            None => panic!(),
-            Some(v) => v,
-          }
+        assert_eq!(prev_txn, txn);
+        match self.value.get() {
+          None => panic!("the `TxnCopyVar` is valid but is missing a value"),
+          Some(v) => v,
         }
       }
     }
@@ -765,9 +787,36 @@ impl<A> TxnCopyVar<A> where A: Copy {
           self.curr_txn.set(Some(txn));
           self.value.set(Some(new_value));
         } else {
-          assert_eq!(prev_txn, txn);
+          // TODO: should panic here?
+          panic!("trying to set a `TxnCopyVar` twice in the same txn");
         }
       }
+    }
+  }
+}
+
+pub struct TxnVarClkBuf<A> {
+  _clk:         usize,
+  curr_txn:     Cell<Option<TxnId>>,
+  rollover:     Cell<bool>,
+  reads:        RefCell<FnvHashSet<(NodeId, usize)>>,
+  writes:       RefCell<FnvHashMap<(NodeId, usize), Symbol>>,
+  read_writes:  RefCell<FnvHashSet<(NodeId, usize, Symbol)>>,
+  coarse_rws:   RefCell<FnvHashSet<(NodeId, usize)>>,
+  buffer:       RefCell<Option<A>>,
+}
+
+impl<A> TxnVarClkBuf<A> {
+  pub fn new(clk: usize) -> Self {
+    TxnVarClkBuf{
+      _clk:         clk,
+      curr_txn:     Cell::new(None),
+      rollover:     Cell::new(false),
+      reads:        RefCell::new(FnvHashSet::default()),
+      writes:       RefCell::new(FnvHashMap::default()),
+      read_writes:  RefCell::new(FnvHashSet::default()),
+      coarse_rws:   RefCell::new(FnvHashSet::default()),
+      buffer:       RefCell::new(None),
     }
   }
 }
@@ -802,6 +851,7 @@ pub struct TxnVar<A> {
   alloc:    Rc<Fn(TxnId, NodeId) -> A>,
   curr_clk: Rc<Cell<usize>>,
   clk_bufs: Vec<Rc<TxnVarBuf<A>>>,
+  //clk_bufs: Vec<Rc<TxnVarClkBuf<A>>>,
 }
 
 impl<A> TxnVar<A> {

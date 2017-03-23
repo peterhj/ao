@@ -952,8 +952,8 @@ impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f3
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if 1 == self.stack.push(epoch) {
-      self.on_._push(epoch, apply);
       self.off_._push(epoch, apply);
+      self.on_._push(epoch, apply);
       apply(self);
     }
   }
@@ -961,8 +961,8 @@ impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f3
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.off_._pop(epoch, apply);
       self.on_._pop(epoch, apply);
+      self.off_._pop(epoch, apply);
     }
   }
 
@@ -2980,25 +2980,18 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
     reconf(&mut state.cfg);
   }
 
-  fn _set_mode(&self, txn: TxnId, mode: BatchStatsMode) {
-    let mut state = self.state.borrow_mut();
-    state.set_mode(txn, mode);
-  }
-
   fn _accumulate(&self, txn: TxnId) {
     let node = self._id();
     let mut state = self.state.borrow_mut();
-    let batch_sz = self.x.val.get(txn, node).batch_size();
     // FIXME: does not account for non-uniform batch sizes.
+    //let batch_sz = self.x.val.get(txn, node).batch_size();
     let n = (state.batch_ct + 1) as f32;
     self.mean_acc.val.rollover(txn, &mut self.mean_acc.val.var().singleton());
     if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-      assert!(!self.mean.val.overwrite(txn, node));
       self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_excl(txn, node).as_view(), DeviceStream::implicit().conn());
     }
     self.var_acc.val.rollover(txn, &mut self.var_acc.val.var().singleton());
     if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
-      assert!(!self.var.val.overwrite(txn, node));
       self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_excl(txn, node).as_view(), DeviceStream::implicit().conn());
     }
     state.batch_ct += 1;
@@ -3008,29 +3001,17 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
     let node = self._id();
     let mut state = self.state.borrow_mut();
     assert!(state.batch_ct >= 1);
-    // FIXME: rather than directly average with `rate`, should use a
-    // normalized rate for bias correction.
     let rate = state.cfg.average.rate(state.update_ct) as f32;
-    // TODO(20170228)
-    //unimplemented!();
-    /*//self.mean_run.val.rollover(next_txn, self.mean_run.val.var()); // FIXME
-    if self.mean_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
-      if rate != 0.0 {
-        self.mean_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.mean_acc.val.get(prev_txn, node).as_view());
-      }
-      if self.mean_acc.val.overwrite(next_txn, node) {
-        self.mean_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
-      }
+    if self.mean_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      self.mean_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.mean_acc.val.get(prev_txn, node).as_view(), DeviceStream::implicit().conn());
+      assert!(self.mean_acc.val.overwrite(next_txn, node));
+      self.mean_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn());
     }
-    //self.var_run.val.rollover(next_txn, self.var_run.val.var()); // FIXME
-    if self.var_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0)) {
-      if rate != 0.0 {
-        self.var_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.var_acc.val.get(prev_txn, node).as_view());
-      }
-      if self.var_acc.val.overwrite(next_txn, node) {
-        self.var_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0);
-      }
-    }*/
+    if self.var_run.val.accumulate(next_txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      self.var_run.val.get_mut(next_txn, node).as_view_mut().average(rate, self.var_acc.val.get(prev_txn, node).as_view(), DeviceStream::implicit().conn());
+      assert!(self.var_acc.val.overwrite(next_txn, node));
+      self.var_acc.val.get_excl(next_txn, node).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn());
+    }
     self.mean_acc.val.rollover(next_txn, &mut self.mean_acc.val.var().singleton());
     self.mean_run.val.rollover(next_txn, &mut self.mean_run.val.var().singleton());
     self.var_acc.val.rollover(next_txn, &mut self.var_acc.val.var().singleton());
@@ -3068,8 +3049,9 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
     let mut state = self.state.borrow_mut();
-    match state.get_mode(txn) {
-      BatchStatsMode::PassThrough => {
+    state.mode.var.persist(txn);
+    match state.mode.var.get(txn) {
+      false => {
         if self.mean.val.overwrite(txn, node) {
           self.mean.val.get_excl(txn, node).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn());
           match state.reduce_axes {
@@ -3145,7 +3127,7 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
           }
         }
       }
-      BatchStatsMode::UseFixedRunningStats => {
+      true => {
         // Do nothing.
       }
     }
@@ -3155,8 +3137,9 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
     let mut state = self.state.borrow_mut();
-    match state.get_mode(txn) {
-      BatchStatsMode::PassThrough => {
+    state.mode.var.persist(txn);
+    match state.mode.var.get(txn) {
+      false => {
         if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
           match state.reduce_axes {
             Axes((0, 1)) => {
@@ -3190,7 +3173,7 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
           }
         }
       }
-      BatchStatsMode::UseFixedRunningStats => {
+      true => {
         // Do nothing.
       }
     }
