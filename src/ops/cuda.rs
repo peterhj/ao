@@ -546,6 +546,77 @@ impl AutodiffOp for PassOp<DeviceBatchArray1d<f32>> {
   }
 }
 
+impl AutodiffOp for PassOp<DeviceArray1d<f32>> {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);
+    }
+    offset
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
+      let next_offset = IoBuf::store(&*val, offset, writer);
+      //println!("DEBUG: PassOp 1d: dim: {}", next_offset - offset);
+      offset = next_offset;
+    }
+    offset
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);
+    }
+    offset
+  }
+
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      let x_ = self.x_.borrow();
+      x_.as_ref().unwrap()._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      let x_ = self.x_.borrow();
+      apply(self);
+      x_.as_ref().unwrap()._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _r_backward(&self, _txn: TxnId) {
+  }
+
+  fn _backward2(&self, _txn: TxnId) {
+  }
+}
+
 /*impl ArrayOp<DeviceArray1d<f32>> for ArraySrc<DeviceArray1d<f32>> {
   fn data(&self) -> ArrayData<DeviceArray1d<f32>> {
     self.data.clone()
@@ -942,6 +1013,12 @@ impl AutodiffOp for InitializeOp<DeviceArray4d<f32>, Rc<Fn(TxnId, NodeId, Rc<Ref
   }
 
   fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+}
+
+impl ArrayOp<DeviceArray1d<f32>> for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f32>>>, Rc<ArrayOp<DeviceArray1d<f32>>>, ArrayData<DeviceArray1d<f32>>> {
+  fn _data(&self) -> &ArrayData<DeviceArray1d<f32>> {
+    &self.output
   }
 }
 
@@ -2963,6 +3040,8 @@ impl<Op> BatchStatsExt<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f3
     BatchStatsOp::<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>>::new(reduce_axes, cfg, ctrl, x_.clone(), clk_horizon, {
       let x = x_.data();
       Rc::new(move |txn, node| {
+        // FIXME(20170323): the following `rollover` is a little bit of a hack.
+        x.val.rollover(txn, &mut x.vars());
         let x_dim = x.val.get(txn, node).dim();
         match reduce_axes {
           Axes((0, 1)) => DeviceArray1d::zeros(x_dim.2, DeviceStream::implicit().conn()),
@@ -2980,17 +3059,29 @@ impl BatchStatsOpExt for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, D
     reconf(&mut state.cfg);
   }
 
+  fn _reset_accumulators(&self, txn: TxnId) {
+    let node = self._id();
+    let mut state = self.state.borrow_mut();
+    //self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn()));
+    //self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn()));
+    state.batch_ct = 0;
+  }
+
   fn _accumulate(&self, txn: TxnId) {
     let node = self._id();
     let mut state = self.state.borrow_mut();
     // FIXME: does not account for non-uniform batch sizes.
     //let batch_sz = self.x.val.get(txn, node).batch_size();
     let n = (state.batch_ct + 1) as f32;
-    self.mean_acc.val.rollover(txn, &mut self.mean_acc.val.var().singleton());
+    if state.batch_ct > 0 {
+      self.mean_acc.val.rollover(txn, &mut self.mean_acc.val.var().singleton());
+    }
     if self.mean_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       self.mean_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.mean.val.get_excl(txn, node).as_view(), DeviceStream::implicit().conn());
     }
-    self.var_acc.val.rollover(txn, &mut self.var_acc.val.var().singleton());
+    if state.batch_ct > 0 {
+      self.var_acc.val.rollover(txn, &mut self.var_acc.val.var().singleton());
+    }
     if self.var_acc.val.accumulate(txn, node, |val| val.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       self.var_acc.val.get_mut(txn, node).as_view_mut().average(1.0 / n, self.var.val.get_excl(txn, node).as_view(), DeviceStream::implicit().conn());
     }

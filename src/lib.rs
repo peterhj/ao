@@ -376,18 +376,47 @@ pub trait AutodiffOp {
     size
   }*/
 
+  fn incremental_val_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
+    let epoch = Epoch::new(self._id());
+    let mut offset = 0;
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| {
+      offset = op._store_val(txn, vars, offset, &mut NullIo);
+    });
+    offset
+  }
+
   fn val_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
     let epoch = Epoch::new(self._id());
     let mut offset = 0;
     vars.unmask_all();
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| {
-      //println!("DEBUG: val_size: epoch: {:?} offset pre:  {}", epoch, offset);
       offset = op._store_val(txn, vars, offset, &mut NullIo);
-      //println!("DEBUG: val_size: epoch: {:?} offset post: {}", epoch, offset);
     });
     vars.unmask_all();
     offset
+  }
+
+  fn max_val_delta(&self, txn: TxnId, vars: &mut VarSet) -> Option<usize> {
+    let epoch = Epoch::new(self._id());
+    let mut offset = 0;
+    let mut max_size = None;
+    vars.unmask_all();
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, &mut |op| {
+      let next_offset = op._store_val(txn, vars, offset, &mut NullIo);
+      let delta = next_offset - offset;
+      match max_size {
+        None => max_size = Some(delta),
+        Some(prev_max_size) => if prev_max_size < delta {
+          max_size = Some(delta);
+        },
+      }
+      offset = next_offset;
+    });
+    vars.unmask_all();
+    max_size
   }
 
   fn load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
