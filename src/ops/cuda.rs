@@ -183,8 +183,8 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
       if reader.downcast_mut::<Vec<T>>().is_some() {
         let src_buf = reader.downcast_mut::<Vec<T>>().unwrap();
         let batch_sz = src_buf.len();
-        val.set_batch_size(batch_sz);
-        val.load(&*src_buf, DeviceStream::implicit().conn());
+        val.set_batch_size(batch_sz)
+          .load(&*src_buf, DeviceStream::implicit().conn());
         offset += batch_sz;
       } else {
         panic!("store: unimplemented reader type: {:?}", reader);
@@ -1071,8 +1071,14 @@ impl AutodiffOp for BranchOp<Rc<CopyConstant<bool>>, Rc<ArrayOp<DeviceArray1d<f3
           self.off.grad.get_mut(txn, node).as_view_mut()
             .add(1.0, self.output.grad.get(txn, node).as_view(), DeviceStream::implicit().conn());
         }
+        if self.on.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          // Do nothing.
+        }
       }
       true  => {
+        if self.off.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+          // Do nothing.
+        }
         if self.on.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
           self.on.grad.get_mut(txn, node).as_view_mut()
             .add(1.0, self.output.grad.get(txn, node).as_view(), DeviceStream::implicit().conn());
