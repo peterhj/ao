@@ -829,6 +829,7 @@ pub struct TxnVarClkBuf<A> {
   curr_txn:     Cell<Option<TxnId>>,
   rollover:     Cell<bool>,
   reads:        RefCell<FnvHashSet<(NodeId, usize)>>,
+  freezes:      RefCell<FnvHashMap<(NodeId, usize), Symbol>>,
   writes:       RefCell<FnvHashMap<(NodeId, usize), Symbol>>,
   read_writes:  RefCell<FnvHashSet<(NodeId, usize, Symbol)>>,
   coarse_rws:   RefCell<FnvHashSet<(NodeId, usize)>>,
@@ -842,6 +843,7 @@ impl<A> TxnVarClkBuf<A> {
       curr_txn:     Cell::new(None),
       rollover:     Cell::new(false),
       reads:        RefCell::new(FnvHashSet::default()),
+      freezes:      RefCell::new(FnvHashMap::default()),
       writes:       RefCell::new(FnvHashMap::default()),
       read_writes:  RefCell::new(FnvHashSet::default()),
       coarse_rws:   RefCell::new(FnvHashSet::default()),
@@ -854,6 +856,7 @@ pub struct TxnVarBuf<A> {
   curr_txn:     Cell<Option<TxnId>>,
   rollover:     Cell<bool>,
   reads:        RefCell<FnvHashSet<NodeId>>,
+  freezes:      RefCell<FnvHashSet<NodeId>>,
   writes:       RefCell<FnvHashMap<NodeId, Symbol>>,
   read_writes:  RefCell<FnvHashSet<(NodeId, Symbol)>>,
   coarse_rws:   RefCell<FnvHashSet<NodeId>>,
@@ -866,6 +869,7 @@ impl<A> TxnVarBuf<A> {
       curr_txn:     Cell::new(None),
       rollover:     Cell::new(false),
       reads:        RefCell::new(FnvHashSet::default()),
+      freezes:      RefCell::new(FnvHashSet::default()),
       writes:       RefCell::new(FnvHashMap::default()),
       read_writes:  RefCell::new(FnvHashSet::default()),
       coarse_rws:   RefCell::new(FnvHashSet::default()),
@@ -930,6 +934,7 @@ impl<A> TxnVar<A> {
     buf.curr_txn.set(None);
     buf.rollover.set(false);
     buf.reads.borrow_mut().clear();
+    buf.freezes.borrow_mut().clear();
     buf.writes.borrow_mut().clear();
     buf.read_writes.borrow_mut().clear();
     buf.coarse_rws.borrow_mut().clear();
@@ -946,30 +951,30 @@ impl<A> TxnVar<A> {
           if prev_txn == txn {
             // Do nothing.
           } else {
-            buf.curr_txn.set(Some(txn));
             buf.rollover.set(true);
+            /*buf.curr_txn.set(Some(txn));
             buf.reads.borrow_mut().clear();
             buf.writes.borrow_mut().clear();
             buf.read_writes.borrow_mut().clear();
-            buf.coarse_rws.borrow_mut().clear();
+            buf.coarse_rws.borrow_mut().clear();*/
           }
         }
         None => {
-          buf.curr_txn.set(Some(txn));
           buf.rollover.set(true);
+          /*buf.curr_txn.set(Some(txn));
           buf.reads.borrow_mut().clear();
           buf.writes.borrow_mut().clear();
           buf.read_writes.borrow_mut().clear();
-          buf.coarse_rws.borrow_mut().clear();
+          buf.coarse_rws.borrow_mut().clear();*/
         }
       }
     } else {
-      buf.curr_txn.set(None);
+      /*buf.curr_txn.set(None);
       buf.rollover.set(false);
       buf.reads.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
-      buf.coarse_rws.borrow_mut().clear();
+      buf.coarse_rws.borrow_mut().clear();*/
     }
   }
 
@@ -1004,6 +1009,7 @@ impl<A> TxnVar<A> {
       buf.curr_txn.set(Some(txn));
       buf.rollover.set(false);
       buf.reads.borrow_mut().clear();
+      buf.freezes.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
@@ -1048,6 +1054,7 @@ impl<A> TxnVar<A> {
       assert!(incomplete_write);
       buf.curr_txn.set(Some(txn));
       buf.reads.borrow_mut().clear();
+      buf.freezes.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
       buf.read_writes.borrow_mut().clear();
       buf.coarse_rws.borrow_mut().clear();
@@ -1088,13 +1095,24 @@ impl<A> TxnVar<A> {
       let curr_txn = buf.curr_txn.get().unwrap();
       new_txn = curr_txn != txn;
     }
-    assert!(!new_txn);
     // FIXME(20170216): may need to record the current clock in
     // read/write events.
-    if buf.rollover.get() {
+    if new_txn {
+      assert!(buf.rollover.get());
+      buf.curr_txn.set(Some(txn));
+      buf.reads.borrow_mut().clear();
+      buf.freezes.borrow_mut().clear();
+      buf.writes.borrow_mut().clear();
+      buf.read_writes.borrow_mut().clear();
+      buf.coarse_rws.borrow_mut().clear();
       buf.rollover.set(false);
     }
-    assert!(!buf.writes.borrow().contains_key(&node));
+    //assert!(!buf.writes.borrow().contains_key(&node));
+    if buf.writes.borrow().contains_key(&node) {
+      if !buf.freezes.borrow().contains(&node) {
+        buf.freezes.borrow_mut().insert(node);
+      }
+    }
     assert!(!buf.coarse_rws.borrow().contains(&node));
     buf.reads.borrow_mut().insert(node);
     Ref::map(buf.buffer.borrow(), |buffer| {
@@ -1132,6 +1150,7 @@ impl<A> TxnVar<A> {
     assert!(!new_txn);
     assert!(!buf.rollover.get());
     assert!(!buf.reads.borrow().contains(&node));
+    assert!(!buf.freezes.borrow().contains(&node));
     assert!(!buf.coarse_rws.borrow().contains(&node));
     if buf.writes.borrow().contains_key(&node) {
       assert_eq!(1, buf.writes.borrow().len());
@@ -1171,6 +1190,7 @@ impl<A> TxnVar<A> {
     assert!(!new_txn);
     assert!(!buf.rollover.get());
     assert!(!buf.reads.borrow().contains(&node));
+    assert!(!buf.freezes.borrow().contains(&node));
     assert!(!buf.writes.borrow().contains_key(&node));
     let rw = buf.read_writes.borrow().contains(&(node, self.symbol));
     let coarse_rw = buf.coarse_rws.borrow().contains(&node);
