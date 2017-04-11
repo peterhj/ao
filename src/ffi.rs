@@ -239,6 +239,20 @@ extern "C" {
       x: *const f32,
       x_sum: *mut f32,
       stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_reduce_one_hot_fwd_f32(
+      dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      index: *const u32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_reduce_one_hot_bwd_f32(
+      dim: usize,
+      batch_sz: usize,
+      dy: *const f32,
+      index: *const u32,
+      dx: *mut f32,
+      stream: cudaStream_t);
 
   pub fn arraydiff_cuda_kernel_block_softmax_fwd_f32(
       block_dim: usize,

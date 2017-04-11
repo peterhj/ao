@@ -48,7 +48,7 @@ __global__ void rect_bwd_kernel_f32(
 {
   uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < dim) {
-    dx[idx] = dy[idx] * (x[idx] > 0.0f);
+    dx[idx] += dy[idx] * (x[idx] > 0.0f);
   }
 }
 
