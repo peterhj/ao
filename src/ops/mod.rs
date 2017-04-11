@@ -1287,6 +1287,11 @@ pub struct ReifyTransform<Idx> {
   pub dim:  Idx,
 }
 
+pub struct ZeroPadTransform {
+  pub axis: usize,
+  pub dim:  usize,
+}
+
 pub trait CastExt<A, B> {
   fn cast(&self) -> Rc<TransformOp<A, B, CastTransform>>;
 }
@@ -1297,6 +1302,14 @@ pub trait FlattenExt<A, B> {
 
 pub trait ReifyExt<Idx, A, B> {
   fn reify(&self, dim: Idx) -> Rc<TransformOp<A, B, ReifyTransform<Idx>>>;
+
+  fn reshape(&self, dim: Idx) -> Rc<TransformOp<A, B, ReifyTransform<Idx>>> {
+    self.reify(dim)
+  }
+}
+
+pub trait ZeroPadExt<A, B> {
+  fn zero_pad(&self, axis: usize, dim: usize) -> Rc<TransformOp<A, B, ZeroPadTransform>>;
 }
 
 impl<A, B, Transform> TransformOp<A, B, Transform> {
@@ -1311,6 +1324,12 @@ impl<A, B, Transform> TransformOp<A, B, Transform> {
       y:    ArrayData::new(clk_horizon, alloc),
       kernel:   transform,
     })
+  }
+}
+
+impl<A, B, Transform> ArrayOp<B> for TransformOp<A, B, Transform> where TransformOp<A, B, Transform>: AutodiffOp {
+  default fn _data(&self) -> &ArrayData<B> {
+    &self.y
   }
 }
 
@@ -2907,6 +2926,47 @@ impl<S> AutodiffOp for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1
   }
 }
 
+pub trait OneHotExt {
+  fn one_hot() -> ();
+}
+
+pub fn one_hot<Op, IdxOp, A, Idx, Out>(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<OneHotOp<A, Idx, Out>> where Op: 'static + ArrayOp<A>, IdxOp: 'static + ArrayOp<Idx> {
+  unimplemented!();
+}
+
+pub struct OneHotOp<A, Idx, Out> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<ArrayOp<A>>,
+  index_:   Rc<ArrayOp<Idx>>,
+  x:        ArrayData<A>,
+  index:    ArrayData<Idx>,
+  y:        ArrayData<Out>,
+}
+
+impl<A, Idx, Out> ArrayOp<Out> for OneHotOp<A, Idx, Out> where OneHotOp<A, Idx, Out>: AutodiffOp {
+  fn _data(&self) -> &ArrayData<Out> {
+    &self.y
+  }
+}
+
+impl<A, Idx, Out> OneHotOp<A, Idx, Out> {
+  pub fn new(x_: Rc<ArrayOp<A>>, index_: Rc<ArrayOp<Idx>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> Out>) -> Rc<OneHotOp<A, Idx, Out>> {
+    let node = NodeId::new();
+    let x = x_.data();
+    let index = index_.data();
+    Rc::new(OneHotOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      x_:       x_,
+      index_:   index_,
+      x:        x,
+      index:    index,
+      y:        ArrayData::new(clk_horizon, alloc),
+    })
+  }
+}
+
 pub struct BatchJoinOp<A, B, Join> {
   node_id:  NodeId,
   stack:    OperatorStack,
@@ -3073,16 +3133,6 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
   }
 }
 
-pub struct OneHotOp<A, Idx, Out> {
-  node_id:  NodeId,
-  stack:    OperatorStack,
-  x_:       Rc<ArrayOp<A>>,
-  index_:   Rc<ArrayOp<Idx>>,
-  x:        ArrayData<A>,
-  index:    ArrayData<Idx>,
-  output:   ArrayData<Out>,
-}
-
 pub fn sink<Op, A>(x_: Rc<Op>) -> Rc<ArraySink<Op, A>> where Op: ArrayOp<A> {
   let x = x_.data();
   Rc::new(ArraySink{
@@ -3122,7 +3172,7 @@ impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: ArrayOp<f32> {
   }
 }
 
-pub fn lst_sq_loss<A, Op>(x_: Rc<Op>, t_: Rc<Op>) -> Rc<LstSqLoss<A>> where Op: 'static + ArrayOp<A> {
+pub fn lst_sq_loss<Op, A>(x_: Rc<Op>, t_: Rc<Op>) -> Rc<LstSqLoss<A>> where Op: 'static + ArrayOp<A> {
   unimplemented!();
 }
 
