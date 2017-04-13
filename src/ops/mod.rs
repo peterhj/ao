@@ -2926,12 +2926,12 @@ impl<S> AutodiffOp for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1
   }
 }
 
-pub trait OneHotExt {
-  fn one_hot() -> ();
+pub trait OneHotExt<Op, IdxOp> {
+  fn one_hot(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<Self>;
 }
 
-pub fn one_hot<Op, IdxOp, A, Idx, Out>(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<OneHotOp<A, Idx, Out>> where Op: 'static + ArrayOp<A>, IdxOp: 'static + ArrayOp<Idx> {
-  unimplemented!();
+pub fn one_hot<Op, IdxOp, A, Idx, Out>(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<OneHotOp<A, Idx, Out>> where Op: 'static + ArrayOp<A>, IdxOp: 'static + ArrayOp<Idx>, OneHotOp<A, Idx, Out>: OneHotExt<Op, IdxOp> {
+  <OneHotOp<A, Idx, Out> as OneHotExt<Op, IdxOp>>::one_hot(x_, index_)
 }
 
 pub struct OneHotOp<A, Idx, Out> {
@@ -3172,21 +3172,51 @@ impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: ArrayOp<f32> {
   }
 }
 
-pub fn lst_sq_loss<Op, A>(x_: Rc<Op>, t_: Rc<Op>) -> Rc<LstSqLoss<A>> where Op: 'static + ArrayOp<A> {
-  unimplemented!();
+pub trait LstSqLossExt<Op> {
+  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Op>) -> Rc<Self> where Self: 'static + Sized;
 }
 
-pub struct LstSqLoss<A> {
+pub fn lst_sq_loss<Op, A, Loss>(huber_clip: bool, x_: Rc<Op>, t_: Rc<Op>) -> Rc<LstSqLoss<A, Loss>> where Op: 'static + ArrayOp<A>, A: 'static, Loss: 'static, LstSqLoss<A, Loss>: LstSqLossExt<Op> {
+  <LstSqLoss<A, Loss> as LstSqLossExt<Op>>::lst_sq_loss(huber_clip, x_, t_)
+}
+
+pub struct LstSqLoss<A, Loss> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<ArrayOp<A>>,
   target_:  Rc<ArrayOp<A>>,
   x:        ArrayData<A>,
   target:   ArrayData<A>,
-  loss:     ArrayData<A>,
+  loss:     ArrayData<Loss>,
+  clip:     bool,
 }
 
-impl AutodiffOp for LstSqLoss<Batch<f32>> {
+impl<A, Loss> LstSqLoss<A, Loss> {
+  pub fn new(clip: bool, x_: Rc<ArrayOp<A>>, target_: Rc<ArrayOp<A>>, clk_horizon: usize, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<LstSqLoss<A, Loss>> {
+    let node = NodeId::new();
+    let x = x_.data();
+    let target = target_.data();
+    let loss = ArrayData::new(clk_horizon, loss_alloc.clone());
+    Rc::new(LstSqLoss{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      x_:       x_,
+      target_:  target_,
+      x:        x,
+      target:   target,
+      loss:     loss,
+      clip:     clip,
+    })
+  }
+}
+
+impl<A, Loss> ArrayOp<Loss> for LstSqLoss<A, Loss> where LstSqLoss<A, Loss>: AutodiffOp {
+  default fn _data(&self) -> &ArrayData<Loss> {
+    &self.loss
+  }
+}
+
+/*impl AutodiffOp for LstSqLoss<Batch<f32>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -3238,7 +3268,7 @@ impl AutodiffOp for LstSqLoss<Batch<f32>> {
       }
     }
   }
-}
+}*/
 
 pub struct KL1LossLink;
 pub struct KL2LossLink;

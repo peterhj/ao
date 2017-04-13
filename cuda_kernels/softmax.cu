@@ -22,7 +22,7 @@ limitations under the License.
 
 //#define OFFSET_BANK(idx) ({ __typeof__ (idx) _idx = idx; ((_idx) + ((_idx) & 31)); })
 
-__global__ void block_softmax_fwd(
+__global__ void block_softmax_fwd_f32(
     uint32_t block_dim,
     uint32_t num_blocks,
     const float *x,
@@ -91,7 +91,7 @@ extern "C" void arraydiff_cuda_kernel_block_softmax_fwd_f32(
 {
   // XXX: assert(block_dim <= 1024);
   // FIXME(20151022): could make more efficient use of blocks but w/e.
-  block_softmax_fwd<<<num_blocks, 1024, 0, stream>>>(
+  block_softmax_fwd_f32<<<num_blocks, 1024, 0, stream>>>(
       block_dim, num_blocks, x, y);
 }
 

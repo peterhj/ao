@@ -3461,6 +3461,19 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
   }
 }
 
+impl<Op, IdxOp> OneHotExt<Op, IdxOp> for OneHotOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>>, IdxOp: 'static + ArrayOp<DeviceIoBatch<u32>> {
+  fn one_hot(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<Self> {
+    let x = x_.data();
+    let clk_horizon = x.horizon();
+    OneHotOp::new(x_.clone(), index_.clone(), clk_horizon, {
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl AutodiffOp for OneHotOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> {
   fn _id(&self) -> NodeId {
     self.node_id
@@ -3614,6 +3627,61 @@ impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKerne
             self.y.grad.get(txn, node).as_ref(),
             DeviceStream::implicit().conn(),
         );
+    }
+  }
+}
+
+impl<Op> LstSqLossExt<Op> for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
+  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Op>) -> Rc<Self> {
+    let x = x_.data();
+    let clk_horizon = x.horizon();
+    LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), clk_horizon, {
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl AutodiffOp for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      self.target_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.target_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.loss.val.overwrite(txn, node) {
+      // TODO
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, gauss_newton: bool) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      // TODO
     }
   }
 }
