@@ -1487,28 +1487,28 @@ impl AutodiffOp for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>
   }
 }
 
-impl<Op> ReifyExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchIoMem<u8>> {
-  fn reify(&self, dim: (usize, usize, usize)) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReifyTransform<(usize, usize, usize)>>> {
+impl<Op> ReshapeExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchIoMem<u8>> {
+  fn reshape(&self, dim: (usize, usize, usize)) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>>> {
     let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), ReifyTransform{dim: dim}, clk_horizon, {
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, clk_horizon, {
       let x = self.data();
       Rc::new(move |txn, node| {
         // TODO: DeviceBatchIoMem has no present capacity, only a current size.
         let batch_cap = x.val.get(txn, node).batch_capacity().unwrap();
-        //println!("DEBUG: reify: batch cap: {}", batch_cap);
+        //println!("DEBUG: reshape: batch cap: {}", batch_cap);
         DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
       })
     })
   }
 }
 
-impl ArrayOp<DeviceBatchArray3d<u8>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReifyTransform<(usize, usize, usize)>> {
+impl ArrayOp<DeviceBatchArray3d<u8>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>> {
   fn _data(&self) -> &ArrayData<DeviceBatchArray3d<u8>> {
     &self.y
   }
 }
 
-impl AutodiffOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReifyTransform<(usize, usize, usize)>> {
+impl AutodiffOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1552,24 +1552,22 @@ impl AutodiffOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, Re
   }
 }
 
-// TODO
-/*impl<Op> ReifyExt<(), DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchIoMem<u8>> {
-  fn reify(&self, dim: ()) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReifyTransform<()>>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), ReifyTransform{dim: dim}, clk_horizon, {
-      let x = self.data();
+impl<Op> ReshapeExt<(), DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
+  fn reshape(&self, dim: ()) -> Rc<TransformOp<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, ReshapeTransform<()>>> {
+    let x = self.data();
+    let clk_horizon = x.horizon();
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, clk_horizon, {
       Rc::new(move |txn, node| {
-        // TODO: DeviceBatchIoMem has no present capacity, only a current size.
-        let batch_cap = x.val.get(txn, node).batch_size();
-        //let batch_cap = x.val.get(txn, node).batch_capacity();
-        //println!("DEBUG: reify: batch cap: {}", batch_cap);
-        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+        let x_dim = x.val.get(txn, node).dim();
+        assert_eq!(1, x_dim);
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
       })
     })
   }
-}*/
+}
 
-impl AutodiffOp for TransformOp<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, ReifyTransform<()>> {
+impl AutodiffOp for TransformOp<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, ReshapeTransform<()>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

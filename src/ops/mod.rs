@@ -1285,7 +1285,7 @@ pub struct TransformOp<A, B, Transform> {
 
 pub struct CastTransform;
 pub struct FlattenTransform;
-pub struct ReifyTransform<Idx> {
+pub struct ReshapeTransform<Idx> {
   pub dim:  Idx,
 }
 
@@ -1302,11 +1302,11 @@ pub trait FlattenExt<A, B> {
   fn flatten(&self) -> Rc<TransformOp<A, B, FlattenTransform>>;
 }
 
-pub trait ReifyExt<Idx, A, B> {
-  fn reify(&self, dim: Idx) -> Rc<TransformOp<A, B, ReifyTransform<Idx>>>;
+pub trait ReshapeExt<Idx, A, B> {
+  fn reshape(&self, dim: Idx) -> Rc<TransformOp<A, B, ReshapeTransform<Idx>>>;
 
-  fn reshape(&self, dim: Idx) -> Rc<TransformOp<A, B, ReifyTransform<Idx>>> {
-    self.reify(dim)
+  fn reify(&self, dim: Idx) -> Rc<TransformOp<A, B, ReshapeTransform<Idx>>> {
+    self.reshape(dim)
   }
 }
 
