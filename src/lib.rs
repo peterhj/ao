@@ -960,8 +960,9 @@ impl<A> TxnVar<A> {
           }
         }
         None => {
-          buf.rollover.set(true);
-          /*buf.curr_txn.set(Some(txn));
+          // Do nothing.
+          /*//buf.rollover.set(true);
+          buf.curr_txn.set(Some(txn));
           buf.reads.borrow_mut().clear();
           buf.writes.borrow_mut().clear();
           buf.read_writes.borrow_mut().clear();
@@ -995,6 +996,7 @@ impl<A> TxnVar<A> {
         new_txn = true;
       } else {
         assert!(!buf.reads.borrow().contains(&node));
+        assert!(!buf.freezes.borrow().contains(&node));
         assert!(!buf.coarse_rws.borrow().contains(&node));
         let written = buf.writes.borrow().contains_key(&node);
         if written {
@@ -1007,7 +1009,6 @@ impl<A> TxnVar<A> {
     if new_txn || buf.rollover.get() {
       assert!(incomplete_write);
       buf.curr_txn.set(Some(txn));
-      buf.rollover.set(false);
       buf.reads.borrow_mut().clear();
       buf.freezes.borrow_mut().clear();
       buf.writes.borrow_mut().clear();
@@ -1017,6 +1018,7 @@ impl<A> TxnVar<A> {
       if buffer.is_none() {
         *buffer = Some((self.alloc)(txn, node));
       }
+      buf.rollover.set(false);
     }
     incomplete_write
   }

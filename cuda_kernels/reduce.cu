@@ -142,7 +142,7 @@ extern "C" void arraydiff_cuda_kernel_blockreduce_sum_f32(
       block_dim, num_blocks, xs, xs_sum);
 }
 
-__global__ void reduce_one_hot_fwd_f32_kernel(
+__global__ void reduce_index_fwd_f32_kernel(
     uint32_t dim,
     uint32_t batch_sz,
     const float *x,
@@ -155,7 +155,7 @@ __global__ void reduce_one_hot_fwd_f32_kernel(
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_reduce_one_hot_fwd_f32(
+extern "C" void arraydiff_cuda_kernel_reduce_index_fwd_f32(
     size_t dim,
     size_t batch_sz,
     const float *x,
@@ -164,11 +164,11 @@ extern "C" void arraydiff_cuda_kernel_reduce_one_hot_fwd_f32(
     cudaStream_t stream)
 {
   size_t n = batch_sz;
-  reduce_one_hot_fwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+  reduce_index_fwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
       dim, batch_sz, x, index, y);
 }
 
-__global__ void reduce_one_hot_bwd_f32_kernel(
+__global__ void reduce_index_bwd_f32_kernel(
     uint32_t dim,
     uint32_t batch_sz,
     const float *dy,
@@ -181,7 +181,7 @@ __global__ void reduce_one_hot_bwd_f32_kernel(
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_reduce_one_hot_bwd_f32(
+extern "C" void arraydiff_cuda_kernel_reduce_index_bwd_f32(
     size_t dim,
     size_t batch_sz,
     const float *dy,
@@ -190,6 +190,6 @@ extern "C" void arraydiff_cuda_kernel_reduce_one_hot_bwd_f32(
     cudaStream_t stream)
 {
   size_t n = batch_sz;
-  reduce_one_hot_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+  reduce_index_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
       dim, batch_sz, dy, index, dx);
 }

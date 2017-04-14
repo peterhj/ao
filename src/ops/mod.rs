@@ -230,6 +230,7 @@ impl AutodiffOp for ArraySrc<f32> {
   }
 
   fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    //println!("DEBUG: trace: persist: {:?}", txn);
     self.data.rollover_all(txn, vars);
   }
 
@@ -240,10 +241,10 @@ impl AutodiffOp for ArraySrc<f32> {
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    let node = self._id();
+    /*let node = self._id();
     if self.data.r_val.overwrite(txn, node) {
       *self.data.r_val.get_excl(txn, node) = 0.0;
-    }
+    }*/
   }
 
   fn _r_backward(&self, _txn: TxnId) {
@@ -340,11 +341,11 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
   }
 
   fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    let node = self._id();
+    /*let node = self._id();
     if self.data.r_val.overwrite(txn, node) {
       // TODO
-      //*self.data.r_val.get_excl(txn, node) = 0.0;
-    }
+      // *self.data.r_val.get_excl(txn, node) = 0.0;
+    }*/
   }
 
   fn _r_backward(&self, _txn: TxnId) {
@@ -947,6 +948,7 @@ impl AutodiffOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>
     /*if self.data.val.overwrite(txn, node) {
       (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
     }*/
+    //println!("DEBUG: trace: init");
     (self.kernel)(txn, node, seed_rng, self.data.clone());
   }
 
@@ -2926,15 +2928,16 @@ impl<S> AutodiffOp for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1
   }
 }
 
-pub trait OneHotExt<Op, IdxOp> {
-  fn one_hot(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<Self>;
+pub trait IndexExt<IdxOp, A, Idx, Out> {
+  //fn one_hot(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<Self>;
+  fn index(&self, index_: Rc<IdxOp>) -> Rc<IndexOp<A, Idx, Out>>;
 }
 
-pub fn one_hot<Op, IdxOp, A, Idx, Out>(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<OneHotOp<A, Idx, Out>> where Op: 'static + ArrayOp<A>, IdxOp: 'static + ArrayOp<Idx>, OneHotOp<A, Idx, Out>: OneHotExt<Op, IdxOp> {
-  <OneHotOp<A, Idx, Out> as OneHotExt<Op, IdxOp>>::one_hot(x_, index_)
-}
+/*pub fn one_hot<Op, IdxOp, A, Idx, Out>(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<IndexOp<A, Idx, Out>> where Op: 'static + ArrayOp<A>, IdxOp: 'static + ArrayOp<Idx>, IndexOp<A, Idx, Out>: IndexExt<Op, IdxOp> {
+  <IndexOp<A, Idx, Out> as IndexExt<Op, IdxOp>>::one_hot(x_, index_)
+}*/
 
-pub struct OneHotOp<A, Idx, Out> {
+pub struct IndexOp<A, Idx, Out> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<ArrayOp<A>>,
@@ -2944,18 +2947,18 @@ pub struct OneHotOp<A, Idx, Out> {
   y:        ArrayData<Out>,
 }
 
-impl<A, Idx, Out> ArrayOp<Out> for OneHotOp<A, Idx, Out> where OneHotOp<A, Idx, Out>: AutodiffOp {
+impl<A, Idx, Out> ArrayOp<Out> for IndexOp<A, Idx, Out> where IndexOp<A, Idx, Out>: AutodiffOp {
   fn _data(&self) -> &ArrayData<Out> {
     &self.y
   }
 }
 
-impl<A, Idx, Out> OneHotOp<A, Idx, Out> {
-  pub fn new(x_: Rc<ArrayOp<A>>, index_: Rc<ArrayOp<Idx>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> Out>) -> Rc<OneHotOp<A, Idx, Out>> {
+impl<A, Idx, Out> IndexOp<A, Idx, Out> {
+  pub fn new(x_: Rc<ArrayOp<A>>, index_: Rc<ArrayOp<Idx>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> Out>) -> Rc<IndexOp<A, Idx, Out>> {
     let node = NodeId::new();
     let x = x_.data();
     let index = index_.data();
-    Rc::new(OneHotOp{
+    Rc::new(IndexOp{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
       x_:       x_,
@@ -3172,12 +3175,12 @@ impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: ArrayOp<f32> {
   }
 }
 
-pub trait LstSqLossExt<Op> {
-  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Op>) -> Rc<Self> where Self: 'static + Sized;
+pub trait LstSqLossExt<Op, Target> {
+  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Target>) -> Rc<Self> where Self: 'static + Sized;
 }
 
-pub fn lst_sq_loss<Op, A, Loss>(huber_clip: bool, x_: Rc<Op>, t_: Rc<Op>) -> Rc<LstSqLoss<A, Loss>> where Op: 'static + ArrayOp<A>, A: 'static, Loss: 'static, LstSqLoss<A, Loss>: LstSqLossExt<Op> {
-  <LstSqLoss<A, Loss> as LstSqLossExt<Op>>::lst_sq_loss(huber_clip, x_, t_)
+pub fn lst_sq_loss<Op, Target, A, Loss>(huber_clip: bool, x_: Rc<Op>, t_: Rc<Target>) -> Rc<LstSqLoss<A, Loss>> where Op: 'static + ArrayOp<A>, Target: 'static + ArrayOp<A>, A: 'static, Loss: 'static, LstSqLoss<A, Loss>: LstSqLossExt<Op, Target> {
+  <LstSqLoss<A, Loss> as LstSqLossExt<Op, Target>>::lst_sq_loss(huber_clip, x_, t_)
 }
 
 pub struct LstSqLoss<A, Loss> {

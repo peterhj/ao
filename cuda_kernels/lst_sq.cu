@@ -19,7 +19,43 @@ limitations under the License.
 #include <math_constants.h>
 #include <stdint.h>
 
-__global__ void block_lst_sq_fwd_f32_kernel(
+__global__ void lst_sq1_fwd_f32_kernel(
+    uint32_t batch_sz,
+    const float *x,
+    const float *target,
+    float *loss,
+    uint32_t do_clip)
+{
+  uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
+  if (idx < batch_sz) {
+    float x_i = x[idx];
+    float t_i = target[idx];
+    float delta = x_i - t_i;
+    if (do_clip) {
+      if (fabs(delta) > 1.0f) {
+        loss[idx] = fabs(delta);
+      } else {
+        loss[idx] = 0.5f * delta * delta;
+      }
+    } else {
+      loss[idx] = 0.5f * delta * delta;
+    }
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_lst_sq1_fwd_f32(
+    size_t batch_sz,
+    const float *x,
+    const float *target,
+    float *loss,
+    uint32_t do_clip,
+    cudaStream_t stream)
+{
+  lst_sq1_fwd_f32_kernel<<<(batch_sz+1024-1)/1024, 1024, 0, stream>>>(
+      batch_sz, x, target, loss, do_clip);
+}
+
+__global__ void lst_sq_block_fwd_f32_kernel(
     uint32_t block_dim,
     uint32_t num_blocks,
     const float *x,
@@ -56,7 +92,7 @@ __global__ void block_lst_sq_fwd_f32_kernel(
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_block_lst_sq_fwd_f32(
+extern "C" void arraydiff_cuda_kernel_lst_sq_block_fwd_f32(
     size_t block_dim,
     size_t num_blocks,
     const float *x,
@@ -65,11 +101,11 @@ extern "C" void arraydiff_cuda_kernel_block_lst_sq_fwd_f32(
     uint32_t do_clip,
     cudaStream_t stream)
 {
-  block_lst_sq_fwd_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
+  lst_sq_block_fwd_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
       block_dim, num_blocks, x, target, loss, do_clip);
 }
 
-__global__ void block_lst_sq_bwd_f32_kernel(
+__global__ void lst_sq_bwd_f32_kernel(
     uint32_t dim,
     uint32_t batch_sz,
     const float *x,
@@ -92,7 +128,7 @@ __global__ void block_lst_sq_bwd_f32_kernel(
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_block_lst_sq_bwd_f32(
+extern "C" void arraydiff_cuda_kernel_lst_sq_bwd_f32(
     size_t dim,
     size_t batch_sz,
     const float *x,
@@ -103,6 +139,6 @@ extern "C" void arraydiff_cuda_kernel_block_lst_sq_bwd_f32(
     cudaStream_t stream)
 {
   uint32_t n = dim * batch_sz;
-  block_lst_sq_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+  lst_sq_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
       dim, batch_sz, x, target, df, dx, do_clip);
 }

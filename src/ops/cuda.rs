@@ -183,6 +183,7 @@ impl<T> AutodiffOp for ArraySrc<DeviceIoBatch<T>> where T: 'static + Copy {
       if reader.downcast_mut::<Vec<T>>().is_some() {
         let src_buf = reader.downcast_mut::<Vec<T>>().unwrap();
         let batch_sz = src_buf.len();
+        //println!("DEBUG: src: load_val: old bsz: {} new bsz: {}", val.batch_size(), batch_sz);
         val.set_batch_size(batch_sz)
           .load(&*src_buf, DeviceStream::implicit().conn());
         offset += batch_sz;
@@ -297,13 +298,21 @@ impl AutodiffOp for ArraySrc<DeviceBatchIoMem<u8>> {
         let batch_sz = src_bufs.len();
         val.set_batch_size(batch_sz, &*DeviceStream::implicit());
         for idx in 0 .. batch_sz {
-          val.load_batch(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
+          val.load_one(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
         }
         offset += val.stride() * val.batch_size();
         /*let mut tmp = Vec::with_capacity(val.stride());
         tmp.resize(val.stride(), 0);
         val[0].as_ref().store_sync(&mut tmp, DeviceStream::implicit().conn());
         println!("DEBUG: DeviceBatchIoMem input: {:?} readback: {:?}", &src_bufs[0][290 .. 295], &tmp[290 .. 295]);*/
+      } else if reader.downcast_mut::<Vec<Arc<Extract<[u8]>>>>().is_some() {
+        let src_bufs = reader.downcast_mut::<Vec<Arc<Extract<[u8]>>>>().unwrap();
+        let batch_sz = src_bufs.len();
+        val.set_batch_size(batch_sz, &*DeviceStream::implicit());
+        for idx in 0 .. batch_sz {
+          val.extract_load_one(idx, &*src_bufs[idx], DeviceStream::implicit().conn());
+        }
+        offset += val.stride() * val.batch_size();
       } else {
         panic!("store: unimplemented reader type: {:?}", reader);
       }
@@ -1485,8 +1494,7 @@ impl<Op> ReifyExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3
       let x = self.data();
       Rc::new(move |txn, node| {
         // TODO: DeviceBatchIoMem has no present capacity, only a current size.
-        let batch_cap = x.val.get(txn, node).batch_size();
-        //let batch_cap = x.val.get(txn, node).batch_capacity();
+        let batch_cap = x.val.get(txn, node).batch_capacity().unwrap();
         //println!("DEBUG: reify: batch cap: {}", batch_cap);
         DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
       })
@@ -2067,10 +2075,13 @@ impl AutodiffOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddK
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
     if self.y.val.overwrite(txn, node) {
+      //println!("DEBUG: ElemMultOp: forward: {:?}", txn);
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      //println!("DEBUG: ElemMultOp: get x");
       self.y.val.get_excl(txn, node).as_view_mut()
         .flatten_mut()
         .copy(self.x.val.get(txn, node).as_view().flatten(), DeviceStream::implicit().conn());
+      //println!("DEBUG: ElemMultOp: get a");
       self.y.val.get_excl(txn, node).as_view_mut()
         .flatten_mut()
         .scale(*self.a.val.get(txn, node), DeviceStream::implicit().conn());
@@ -3461,11 +3472,12 @@ impl AutodiffOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, Device
   }
 }
 
-impl<Op, IdxOp> OneHotExt<Op, IdxOp> for OneHotOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>>, IdxOp: 'static + ArrayOp<DeviceIoBatch<u32>> {
-  fn one_hot(x_: Rc<Op>, index_: Rc<IdxOp>) -> Rc<Self> {
-    let x = x_.data();
+//impl<Op, IdxOp> IndexExt<Op, IdxOp> for IndexOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>>, IdxOp: 'static + ArrayOp<DeviceIoBatch<u32>> {
+impl<Op, IdxOp> IndexExt<IdxOp, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>>, IdxOp: 'static + ArrayOp<DeviceIoBatch<u32>> {
+  fn index(&self, index_: Rc<IdxOp>) -> Rc<IndexOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>>> {
+    let x = self.data();
     let clk_horizon = x.horizon();
-    OneHotOp::new(x_.clone(), index_.clone(), clk_horizon, {
+    IndexOp::new(self.clone(), index_.clone(), clk_horizon, {
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
         DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
@@ -3474,7 +3486,7 @@ impl<Op, IdxOp> OneHotExt<Op, IdxOp> for OneHotOp<DeviceBatchArray1d<f32>, Devic
   }
 }
 
-impl AutodiffOp for OneHotOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> {
+impl AutodiffOp for IndexOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -3507,7 +3519,7 @@ impl AutodiffOp for OneHotOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Device
       self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
       // TODO: wait/post.
       let conn = DeviceStream::implicit().conn();
-      unsafe { arraydiff_cuda_kernel_reduce_one_hot_fwd_f32(
+      unsafe { arraydiff_cuda_kernel_reduce_index_fwd_f32(
           x_dim,
           batch_sz,
           self.x.val.get(txn, node).as_view().as_ptr(),
@@ -3525,7 +3537,7 @@ impl AutodiffOp for OneHotOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Device
     if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       // TODO: wait/post.
       let conn = DeviceStream::implicit().conn();
-      unsafe { arraydiff_cuda_kernel_reduce_one_hot_bwd_f32(
+      unsafe { arraydiff_cuda_kernel_reduce_index_bwd_f32(
           x_dim,
           batch_sz,
           self.y.grad.get(txn, node).as_ref().as_ptr(),
@@ -3631,8 +3643,89 @@ impl AutodiffOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKerne
   }
 }
 
-impl<Op> LstSqLossExt<Op> for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
-  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Op>) -> Rc<Self> {
+impl<Op, Target> LstSqLossExt<Op, Target> for LstSqLoss<DeviceIoBatch<f32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceIoBatch<f32>>, Target: 'static + ArrayOp<DeviceIoBatch<f32>> {
+  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Target>) -> Rc<Self> {
+    let x = x_.data();
+    let clk_horizon = x.horizon();
+    LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), clk_horizon, {
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl AutodiffOp for LstSqLoss<DeviceIoBatch<f32>, DeviceIoBatch<f32>> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      self.target_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.target_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.loss.val.overwrite(txn, node) {
+      // TODO: wait/post.
+      let conn = DeviceStream::implicit().conn();
+      unsafe { arraydiff_cuda_kernel_lst_sq1_fwd_f32(
+          batch_sz,
+          self.x.val.get(txn, node).as_ref().as_ptr(),
+          self.target.val.get(txn, node).as_ref().as_ptr(),
+          self.loss.val.get_excl(txn, node).as_mut().as_mut_ptr(),
+          match self.clip {
+            false => 0,
+            true  => 1,
+          },
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, gauss_newton: bool) {
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      // TODO: wait/post.
+      let conn = DeviceStream::implicit().conn();
+      unsafe { arraydiff_cuda_kernel_lst_sq_bwd_f32(
+          1,
+          batch_sz,
+          self.x.val.get(txn, node).as_ref().as_ptr(),
+          self.target.val.get(txn, node).as_ref().as_ptr(),
+          self.loss.grad.get(txn, node).as_ref().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_mut().as_mut_ptr(),
+          match self.clip {
+            false => 0,
+            true  => 1,
+          },
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+  }
+}
+
+impl<Op, Target> LstSqLossExt<Op, Target> for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>>, Target: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
+  fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Target>) -> Rc<Self> {
     let x = x_.data();
     let clk_horizon = x.horizon();
     LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), clk_horizon, {
@@ -3674,6 +3767,7 @@ impl AutodiffOp for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> {
     let batch_sz = self.x.val.get(txn, node).batch_size();
     if self.loss.val.overwrite(txn, node) {
       // TODO
+      unimplemented!();
     }
   }
 
@@ -3682,6 +3776,7 @@ impl AutodiffOp for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> {
     let batch_sz = self.x.val.get(txn, node).batch_size();
     if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
       // TODO
+      unimplemented!();
     }
   }
 }

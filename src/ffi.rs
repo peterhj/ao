@@ -187,6 +187,31 @@ extern "C" {
       x_grad: *mut f32,
       stream: cudaStream_t);
 
+  pub fn arraydiff_cuda_kernel_lst_sq1_fwd_f32(
+      batch_sz: usize,
+      x: *const f32,
+      target: *const f32,
+      loss: *mut f32,
+      do_clip: u32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_lst_sq_block_fwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      x: *const f32,
+      target: *const f32,
+      loss: *mut f32,
+      do_clip: u32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_lst_sq_bwd_f32(
+      dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      target: *const f32,
+      df: *const f32,
+      dx: *mut f32,
+      do_clip: u32,
+      stream: cudaStream_t);
+
   pub fn arraydiff_cuda_kernel_max_pool_fwd_f32(
       x_w: usize, x_h: usize, chan_dim: usize, batch_sz: usize,
       y_w: usize, y_h: usize,
@@ -239,14 +264,14 @@ extern "C" {
       x: *const f32,
       x_sum: *mut f32,
       stream: cudaStream_t);
-  pub fn arraydiff_cuda_kernel_reduce_one_hot_fwd_f32(
+  pub fn arraydiff_cuda_kernel_reduce_index_fwd_f32(
       dim: usize,
       batch_sz: usize,
       x: *const f32,
       index: *const u32,
       y: *mut f32,
       stream: cudaStream_t);
-  pub fn arraydiff_cuda_kernel_reduce_one_hot_bwd_f32(
+  pub fn arraydiff_cuda_kernel_reduce_index_bwd_f32(
       dim: usize,
       batch_sz: usize,
       dy: *const f32,
