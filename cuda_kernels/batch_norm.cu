@@ -312,7 +312,7 @@ extern "C" void arraydiff_cuda_kernel_conv_normalize_mean_bwd_atomic_f32(
   }
 }
 
-__global__ void conv_normalize_input_bwd_nonatomic_f32_kernel(
+__global__ void conv_normalize_input_bwd_f32_kernel(
     uint32_t spatial_dim,
     uint32_t chan_dim,
     uint32_t batch_sz,
@@ -341,7 +341,7 @@ extern "C" void arraydiff_cuda_kernel_conv_normalize_input_bwd_f32(
     cudaStream_t stream)
 {
   uint32_t n = spatial_dim * chan_dim * batch_sz;
-  conv_normalize_input_bwd_nonatomic_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+  conv_normalize_input_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
       spatial_dim, chan_dim, batch_sz, var, y_grad, epsilon, x_grad);
 }
 

@@ -61,6 +61,7 @@ fn main() {
     .include("cuda_kernels")
     .include("/usr/local/cuda/include")
     .file("cuda_kernels/batch_norm.cu")
+    .file("cuda_kernels/clip.cu")
     .file("cuda_kernels/conv.cu")
     .file("cuda_kernels/lst_sq.cu")
     .file("cuda_kernels/pool.cu")

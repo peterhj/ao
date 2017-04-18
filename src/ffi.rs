@@ -38,6 +38,10 @@ extern "C" {
   pub fn arraydiff_cuda_kernel_rect_fwd_f32(dim: usize, x: *const f32, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_rect_bwd_f32(dim: usize, x: *const f32, dy: *const f32, dx: *mut f32, stream: cudaStream_t);
 
+  pub fn arraydiff_cuda_kernel_symm_unit_clip_fwd_f32(dim: usize, clip: *const f32, x: *const f32, y: *mut f32, stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_symm_unit_clip_param_bwd_nondeterministic_f32(dim: usize, clip: *const f32, x: *const f32, y: *const f32, grad: *mut f32, stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_symm_unit_clip_input_bwd_f32(dim: usize, clip: *const f32, x: *const f32, y: *const f32, dy: *mut f32, stream: cudaStream_t);
+
   pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
 

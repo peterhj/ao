@@ -632,6 +632,77 @@ impl AutodiffOp for PassOp<DeviceArray1d<f32>> {
   }
 }*/
 
+impl AutodiffOp for ArraySrc<DeviceMem<f32>> {
+  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
+      /*let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);*/
+      unimplemented!();
+    }
+    offset
+  }
+
+  fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      /*let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);*/
+      unimplemented!();
+    }
+    offset
+  }
+
+  fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      /*let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);*/
+      unimplemented!();
+    }
+    offset
+  }
+
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  }
+
+  fn _reset_clock(&self) {
+    if self.clock {
+      self.data.reset_clock_all();
+    }
+  }
+
+  fn _set_clock(&self, clk: usize) {
+    if self.clock {
+      self.data.set_clock_all(clk);
+    }
+  }
+}
+
 impl AutodiffOp for ArraySrc<DeviceArray1d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
@@ -909,6 +980,44 @@ pub fn kaiming_conv2d_init_gpu<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefC
       *e = dist.ind_sample(&mut rng) as f32;
     }
     a.as_view_mut().load_sync(h_a.as_view(), DeviceStream::implicit().conn());
+  }
+}
+
+impl AutodiffOp for InitializeOp<DeviceMem<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceMem<f32>>)>> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    // Do nothing, `data` belongs to `x`.
+  }
+
+  fn _init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
+    let node = self._id();
+    /*if self.data.val.overwrite(txn, node) {
+      (self.kernel)(seed_rng, &mut *self.data.val.get_excl(txn, node));
+    }*/
+    (self.kernel)(txn, node, seed_rng, self.data.clone());
+  }
+
+  fn _forward(&self, txn: TxnId) {
+  }
+
+  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
   }
 }
 
