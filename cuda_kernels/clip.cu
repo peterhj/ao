@@ -27,8 +27,9 @@ __global__ void symm_unit_clip_fwd_f32_kernel(
 {
   uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < dim) {
-    float c = clip[0];
-    float a = c / max(fabs(c), 1.0f);
+    /*float c = clip[0];
+    float a = c / max(fabs(c), 1.0f);*/
+    float a = clip[0];
     float x_i = x[idx];
     y[idx] = x_i * ((x_i > 0.0f) + a * (x_i < 0.0f));
   }
@@ -54,11 +55,13 @@ __global__ void symm_unit_clip_param_bwd_f32_atomic_naive_kernel(
 {
   uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < dim) {
-    float c = clip[0];
+    /*float c = clip[0];
     float u = max(fabs(c), 1.0f);
     float du = 1.0f * (c > 1.0f) - 1.0f * (c < -1.0f);
     float x_i = x[idx];
-    atomicAdd(&grad[0], (1.0f / u) * (1.0f - du * c / u) * x_i * (x_i < 0.0f));
+    atomicAdd(&grad[0], (1.0f / u) * (1.0f - du * c / u) * dy[idx] * x_i * (x_i < 0.0f));*/
+    float x_i = x[idx];
+    atomicAdd(&grad[0], dy[idx] * x_i * (x_i < 0.0f));
   }
 }
 
@@ -72,11 +75,13 @@ __global__ void symm_unit_clip_param_bwd_f32_atomic_fast_kernel(
   __shared__ float cache[1024];
   uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < dim) {
-    float c = clip[0];
+    /*float c = clip[0];
     float u = max(fabs(c), 1.0f);
     float du = 1.0f * (c > 1.0f) - 1.0f * (c < -1.0f);
     float x_i = x[idx];
-    cache[threadIdx.x] = (1.0f / u) * (1.0f - du * c / u) * x_i * (x_i < 0.0f);
+    cache[threadIdx.x] = (1.0f / u) * (1.0f - du * c / u) * dy[idx] * x_i * (x_i < 0.0f);*/
+    float x_i = x[idx];
+    cache[threadIdx.x] = dy[idx] * x_i * (x_i < 0.0f);
   } else {
     cache[threadIdx.x] = 0.0f;
   }
@@ -110,8 +115,9 @@ __global__ void symm_unit_clip_input_bwd_f32_kernel(
 {
   uint32_t idx = threadIdx.x + blockIdx.x * blockDim.x;
   if (idx < dim) {
-    float c = clip[0];
-    float a = c / max(fabs(c), 1.0f);
+    /*float c = clip[0];
+    float a = c / max(fabs(c), 1.0f);*/
+    float a = clip[0];
     float x_i = x[idx];
     dx[idx] += dy[idx] * ((x_i > 0.0f) + a * (x_i < 0.0f));
   }

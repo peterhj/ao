@@ -35,6 +35,44 @@ use std::ptr::{null_mut};
 use std::rc::{Rc};
 use std::sync::{Arc};
 
+impl IoBuf for DeviceMem<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    let buf_len = dst.len();
+    if reader.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if reader.downcast_mut::<Vec<f32>>().is_some() {
+      let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
+      dst.as_mut().load_sync(&reader[offset .. offset + buf_len], DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else if reader.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let reader = reader.downcast_mut::<DeviceMem<f32>>().unwrap();
+      dst.as_mut().copy(reader.as_ref().slice(offset, offset + buf_len), DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else {
+      panic!("store: unimplemented reader type: {:?}", reader);
+    }
+    offset
+  }
+
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    let buf_len = src.len();
+    if writer.downcast_mut::<NullIo>().is_some() {
+      offset += buf_len;
+    } else if writer.downcast_mut::<Vec<f32>>().is_some() {
+      let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
+      src.as_ref().store_sync(&mut writer[offset .. offset + buf_len], DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else if writer.downcast_mut::<DeviceMem<f32>>().is_some() {
+      let writer = writer.downcast_mut::<DeviceMem<f32>>().unwrap();
+      writer.as_mut().slice_mut(offset, offset + buf_len).copy(src.as_ref(), DeviceStream::implicit().conn());
+      offset += buf_len;
+    } else {
+      panic!("store: unimplemented writer type: {:?}", writer);
+    }
+    offset
+  }
+}
+
 impl IoBuf for DeviceArray1d<f32> {
   fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
     let buf_len = dst.dim();
@@ -637,9 +675,8 @@ impl AutodiffOp for ArraySrc<DeviceMem<f32>> {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
-      /*let mut val = self.data.val.get_excl(txn, node);
-      offset = IoBuf::load(&mut *val, offset, reader);*/
-      unimplemented!();
+      let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);
     }
     offset
   }
@@ -647,9 +684,8 @@ impl AutodiffOp for ArraySrc<DeviceMem<f32>> {
   fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
-      /*let val = self.data.val.get(txn, node);
-      offset = IoBuf::store(&*val, offset, writer);*/
-      unimplemented!();
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
     }
     offset
   }
@@ -657,9 +693,8 @@ impl AutodiffOp for ArraySrc<DeviceMem<f32>> {
   fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.grad.var()) {
-      /*let grad = self.data.grad.get(txn, node);
-      offset = IoBuf::store(&*grad, offset, writer);*/
-      unimplemented!();
+      let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
   }
@@ -959,6 +994,23 @@ pub fn kaiming_linear_init_gpu<R>() -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2
     let std = (2.0 / a.dim().1 as f64).sqrt();
     let dist = Normal::new(0.0, std);
     let mut h_a = Array2d::zeros(a.dim());
+    for e in h_a.as_mut_slice().iter_mut() {
+      *e = dist.ind_sample(&mut rng) as f32;
+    }
+    a.as_view_mut().load_sync(h_a.as_view(), DeviceStream::implicit().conn());
+  }
+}
+
+pub fn xavier_conv2d_init_gpu<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray4d<f32>) where R: Rng {
+  move |seed_rng: Rc<RefCell<R>>, a: &mut DeviceArray4d<f32>| {
+    let mut seed_rng = seed_rng.borrow_mut();
+    let mut rng = Xorshiftplus128Rng::from_seed(&mut *seed_rng);
+    let half_range = match axes {
+      Axes((0, 1)) => (6.0 / (a.dim().0 * a.dim().1 * a.dim().2 + a.dim().3) as f64).sqrt(),
+      _ => unimplemented!(),
+    };
+    let dist = Range::new(-half_range, half_range);
+    let mut h_a = Array4d::zeros(a.dim());
     for e in h_a.as_mut_slice().iter_mut() {
       *e = dist.ind_sample(&mut rng) as f32;
     }
@@ -1929,6 +1981,182 @@ impl AutodiffOp for JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel> {
   fn _backward2(&self, txn: TxnId) {
     // TODO
     unimplemented!();
+  }
+}
+
+impl<Op> SymmClipExt<DeviceBatchArray1d<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray1d<f32>> {
+  fn symm_unit_clip(&self, c_: Rc<ArrayOp<DeviceMem<f32>>>) -> Rc<ClipOp<DeviceBatchArray1d<f32>, DeviceMem<f32>, SymmUnitClipKernel>> {
+    let x = self.data();
+    let clk_horizon = x.horizon();
+    ClipOp::new(self.clone(), c_, SymmUnitClipKernel, clk_horizon, {
+      Rc::new(move |txn, node| {
+        let x_dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray1d::<f32>::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl<Op> SymmClipExt<DeviceBatchArray3d<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + ArrayOp<DeviceBatchArray3d<f32>> {
+  fn symm_unit_clip(&self, c_: Rc<ArrayOp<DeviceMem<f32>>>) -> Rc<ClipOp<DeviceBatchArray3d<f32>, DeviceMem<f32>, SymmUnitClipKernel>> {
+    let x = self.data();
+    let clk_horizon = x.horizon();
+    ClipOp::new(self.clone(), c_, SymmUnitClipKernel, clk_horizon, {
+      Rc::new(move |txn, node| {
+        let x_dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray3d::<f32>::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl AutodiffOp for ClipOp<DeviceBatchArray1d<f32>, DeviceMem<f32>, SymmUnitClipKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      self.c_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.c_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.y.val.overwrite(txn, node) {
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let conn = DeviceStream::implicit().conn();
+      // TODO: wait/post.
+      unsafe { arraydiff_cuda_kernel_symm_unit_clip_fwd_f32(
+          x_dim.flat_len() * batch_sz,
+          self.c.val.get(txn, node).as_ref().as_ptr(),
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.c.grad.accumulate(txn, node, |grad| grad.as_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let conn = DeviceStream::implicit().conn();
+      // TODO: wait/post.
+      unsafe { arraydiff_cuda_kernel_symm_unit_clip_param_bwd_nondeterministic_f32(
+          x_dim.flat_len() * batch_sz,
+          self.c.val.get(txn, node).as_ref().as_ptr(),
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.c.grad.get_mut(txn, node).as_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let conn = DeviceStream::implicit().conn();
+      // TODO: wait/post.
+      unsafe { arraydiff_cuda_kernel_symm_unit_clip_input_bwd_f32(
+          x_dim.flat_len() * batch_sz,
+          self.c.val.get(txn, node).as_ref().as_ptr(),
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+  }
+}
+
+impl AutodiffOp for ClipOp<DeviceBatchArray3d<f32>, DeviceMem<f32>, SymmUnitClipKernel> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      self.c_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.c_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.y.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.y.val.overwrite(txn, node) {
+      self.y.val.get_excl(txn, node).set_batch_size(batch_sz);
+      let conn = DeviceStream::implicit().conn();
+      // TODO: wait/post.
+      unsafe { arraydiff_cuda_kernel_symm_unit_clip_fwd_f32(
+          x_dim.flat_len() * batch_sz,
+          self.c.val.get(txn, node).as_ref().as_ptr(),
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+  }
+
+  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.c.grad.accumulate(txn, node, |grad| grad.as_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let conn = DeviceStream::implicit().conn();
+      // TODO: wait/post.
+      unsafe { arraydiff_cuda_kernel_symm_unit_clip_param_bwd_nondeterministic_f32(
+          x_dim.flat_len() * batch_sz,
+          self.c.val.get(txn, node).as_ref().as_ptr(),
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.c.grad.get_mut(txn, node).as_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
+    if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let conn = DeviceStream::implicit().conn();
+      // TODO: wait/post.
+      unsafe { arraydiff_cuda_kernel_symm_unit_clip_input_bwd_f32(
+          x_dim.flat_len() * batch_sz,
+          self.c.val.get(txn, node).as_ref().as_ptr(),
+          self.x.val.get(txn, node).as_view().as_ptr(),
+          self.y.grad.get(txn, node).as_view().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+    }
   }
 }
 

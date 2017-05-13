@@ -1584,6 +1584,47 @@ pub trait DummyExt<A> {
 impl<S> DummyExt<Array1d<f32, S>> for Rc<ArrayOp<Array1d<f32, S>>> where S: DerefMut<Target=[f32]> {
 }
 
+pub struct SymmUnitClipKernel;
+
+pub trait SymmClipExt<A, Clip> {
+  fn symm_unit_clip(&self, c_: Rc<ArrayOp<Clip>>) -> Rc<ClipOp<A, Clip, SymmUnitClipKernel>>;
+}
+
+pub struct ClipOp<A, Clip, Kernel> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  c_:   Rc<ArrayOp<Clip>>,
+  x_:   Rc<ArrayOp<A>>,
+  c:    ArrayData<Clip>,
+  x:    ArrayData<A>,
+  y:    ArrayData<A>,
+  kernel:   Kernel,
+}
+
+impl<A, Clip, Kernel> ClipOp<A, Clip, Kernel> {
+  pub fn new(x_: Rc<ArrayOp<A>>, c_: Rc<ArrayOp<Clip>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<ClipOp<A, Clip, Kernel>> {
+    let node = NodeId::new();
+    let x = x_.data();
+    let c = c_.data();
+    Rc::new(ClipOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      c_:       c_,
+      x_:       x_,
+      c:        c,
+      x:        x,
+      y:        ArrayData::new(clk_horizon, alloc),
+      kernel:   kernel,
+    })
+  }
+}
+
+impl<A, Clip, Kernel> ArrayOp<A> for ClipOp<A, Clip, Kernel> where ClipOp<A, Clip, Kernel>: AutodiffOp {
+  default fn _data(&self) -> &ArrayData<A> {
+    &self.y
+  }
+}
+
 pub trait MultExt<A, V, W, B> {
   fn mult(&self, x: Rc<ArrayOp<V>>) -> Rc<LinearOp<A, V, W, B>>;
   fn mult_add(&self, x: Rc<ArrayOp<V>>, b: Rc<ArrayOp<B>>) -> Rc<LinearOp<A, V, W, B>>;
