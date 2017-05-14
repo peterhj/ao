@@ -2060,6 +2060,45 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
   }
 }
 
+pub struct BroadcastAddOp<A, V> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  a_:   Rc<ArrayOp<A>>,
+  x_:   Rc<ArrayOp<V>>,
+  a:    ArrayData<A>,
+  x:    ArrayData<V>,
+  y:    ArrayData<V>,
+  //kernel:   K,
+}
+
+impl<A, V> BroadcastAddOp<A, V> {
+  // TODO: broadcast axes.
+  pub fn new(/*axes: _,*/ a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+    let node = NodeId::new();
+    let a = a_.data();
+    let x = x_.data();
+    Rc::new(BroadcastAddOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      a_:   a_,
+      x_:   x_,
+      a:    a,
+      x:    x,
+      y:    ArrayData::new(clk_horizon, alloc.clone()),
+    })
+  }
+}
+
+pub trait BroadcastAddExt<A, V> {
+  fn broadcast_add(&self, x_: Rc<ArrayOp<V>>) -> Rc<BroadcastAddOp<A, V>>;
+}
+
+impl<A, V> ArrayOp<V> for BroadcastAddOp<A, V> where BroadcastAddOp<A, V>: AutodiffOp {
+  default fn _data(&self) -> &ArrayData<V> {
+    &self.y
+  }
+}
+
 pub struct ElemLinearOp<A, V, K> {
   node_id:  NodeId,
   stack:    OperatorStack,

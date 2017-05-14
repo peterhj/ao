@@ -45,6 +45,29 @@ extern "C" {
   pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
 
+  pub fn arraydiff_cuda_kernel_conv_bcast_add_fwd_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      shift: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_bcast_add_param_bwd_nonatomic_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      y_grad: *const f32,
+      shift_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_conv_bcast_add_input_bwd_f32(
+      spatial_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      y_grad: *const f32,
+      x_grad: *mut f32,
+      stream: cudaStream_t);
+
   pub fn arraydiff_cuda_kernel_conv_bcast_mult_add_fwd_f32(
       spatial_dim: usize,
       chan_dim: usize,
