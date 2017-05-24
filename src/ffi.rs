@@ -327,4 +327,17 @@ extern "C" {
       df: *const f32,
       dx: *mut f32,
       stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_block_softmax_negentropy_loss_fwd_accumulate_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y: *const f32,
+      loss: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_block_softmax_negentropy_loss_bwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y: *const f32,
+      df: *const f32,
+      dx: *mut f32,
+      stream: cudaStream_t);
 }

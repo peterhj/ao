@@ -17,7 +17,11 @@ limitations under the License.
 pub use super::{
   GLOBAL_CONFIG,
   NodeId, TxnId, EpochNr, Epoch, OperatorStack, Var, VarSet, Symbol,
-  AutodiffOp, AutodiffSink,
+  AutodiffOp,
+  AutodiffSink, // TODO: deprecate.
+  GradientSinkExt,
+  GaussNewtonSinkExt,
+  HessianSinkExt,
   OutputData, OutputOp,
   NullIo,
   SerialIoBuf, ZeroIo, CursorIoBufExt, CursorIoBuf,

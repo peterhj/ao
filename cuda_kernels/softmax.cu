@@ -152,3 +152,92 @@ extern "C" void arraydiff_cuda_kernel_softmax_nll_loss_bwd_f32(
   softmax_nll_loss_bwd_f32<<<(n+1024-1)/1024, 1024, 0, stream>>>(
       dim, batch_sz, y, t, df, dx);
 }
+
+__global__ void block_softmax_negentropy_loss_fwd_accumulate_f32(
+    uint32_t block_dim,
+    uint32_t num_blocks,
+    const float *y,
+    float *loss)
+{
+  const float beta = 0.01f;
+  __shared__ float cache[1024];
+  uint32_t tid = threadIdx.x;
+  uint32_t block = blockIdx.x;
+  uint32_t i = tid + block * block_dim;
+
+  float y_i = 0.0f;
+  float ent_i = 0.0f;
+  if (tid < block_dim && block < num_blocks) {
+    y_i = y[i];
+    if (y_i > 0.0f) {
+      ent_i = -y_i * logf(y_i);
+    }
+    cache[tid] = ent_i;
+  } else {
+    cache[tid] = 0.0f;
+  }
+  __syncthreads();
+  threadblock1024_reduce_sum_f32(cache);
+
+  if (tid == 0 && block < num_blocks) {
+    float entropy = cache[0];
+    loss[block] += -beta * entropy;
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_block_softmax_negentropy_loss_fwd_accumulate_f32(
+    size_t block_dim,
+    size_t num_blocks,
+    const float *y,
+    float *loss,
+    cudaStream_t stream)
+{
+  block_softmax_negentropy_loss_fwd_accumulate_f32<<<num_blocks, 1024, 0, stream>>>(
+      block_dim, num_blocks, y, loss);
+}
+
+__global__ void block_softmax_negentropy_loss_bwd_f32(
+    uint32_t block_dim,
+    uint32_t num_blocks,
+    const float *y,
+    const float *df,
+    float *dx)
+{
+  const float beta = 0.01f;
+  __shared__ float cache[1024];
+  uint32_t tid = threadIdx.x;
+  uint32_t block = blockIdx.x;
+  uint32_t i = tid + block * block_dim;
+
+  float y_i = 0.0f;
+  float ent_i = 0.0f;
+  if (tid < block_dim && block < num_blocks) {
+    y_i = y[i];
+    if (y_i > 0.0f) {
+      ent_i = -y_i * logf(y_i);
+    }
+    cache[tid] = ent_i;
+  } else {
+    cache[tid] = 0.0f;
+  }
+  __syncthreads();
+  threadblock1024_reduce_sum_f32(cache);
+
+  if (tid < block_dim && block < num_blocks) {
+    float entropy = cache[0];
+    float diff_i = -beta * (ent_i - y_i * entropy);
+    dx[i] += df[block] * diff_i;
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_block_softmax_negentropy_loss_bwd_f32(
+    size_t block_dim,
+    size_t num_blocks,
+    const float *y,
+    const float *df,
+    float *dx,
+    cudaStream_t stream)
+{
+  block_softmax_negentropy_loss_bwd_f32<<<num_blocks, 1024, 0, stream>>>(
+      block_dim, num_blocks, y, df, dx);
+}

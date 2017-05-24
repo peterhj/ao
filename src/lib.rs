@@ -50,9 +50,11 @@ pub mod ffi;
 pub mod ops;
 pub mod prelude;
 
-lazy_static! {
+/*lazy_static! {
   pub static ref GLOBAL_CONFIG: GlobalConfig = GlobalConfig::default();
-}
+}*/
+
+thread_local!(pub static GLOBAL_CONFIG: GlobalConfig = GlobalConfig::default());
 
 thread_local!(static NODE_ID_COUNTER: Cell<u64> = Cell::new(0));
 thread_local!(static TXN_ID_COUNTER:  Cell<u64> = Cell::new(0));
@@ -340,6 +342,16 @@ pub trait AutodiffOp {
   fn _id(&self) -> NodeId;
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
+  fn _traverse_fwd(&self, apply: &mut FnMut(&AutodiffOp)) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, apply);
+    self._pop(epoch, &mut |_op| {});
+  }
+  fn _traverse_bwd(&self, apply: &mut FnMut(&AutodiffOp)) {
+    let epoch = Epoch::new(self._id());
+    self._push(epoch, &mut |_op| {});
+    self._pop(epoch, apply);
+  }
 
   //fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { unimplemented!(); }
   fn _copy_val(&self, _dst_txn: TxnId, _dst_vars: &mut VarSet, _src_txn: TxnId, _src_vars: &mut VarSet, offset: usize, _src: &AutodiffOp) -> usize { offset }
@@ -525,6 +537,18 @@ pub trait AutodiffOp {
     self._push(epoch, &mut |op| { op._forward(txn); });
     self._pop(epoch, &mut |_op| {});
   }
+}
+
+pub trait GradientSinkExt {
+  fn gradient(&self, txn: TxnId);
+}
+
+pub trait GaussNewtonSinkExt {
+  fn gauss_newton_vector_product(&self, txn: TxnId);
+}
+
+pub trait HessianSinkExt {
+  fn hessian_vector_product(&self, txn: TxnId);
 }
 
 //pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
