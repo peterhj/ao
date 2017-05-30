@@ -62,6 +62,8 @@ thread_local!(static TXN_ID_COUNTER:  Cell<u64> = Cell::new(0));
 thread_local!(static EPOCH_COUNTER:   Cell<u64> = Cell::new(0));
 thread_local!(static CLK_DOM_COUNTER: Cell<u64> = Cell::new(0));
 
+thread_local!(static DEFAULT_CONS:    ConstructorConfig = ConstructorConfig::_default());
+
 pub struct GlobalConfig {
   pub deterministic:    bool,
 }
@@ -137,17 +139,17 @@ impl EpochNr {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct ClockDomain(u64);
+pub struct ClockDom(u64);
 
-impl ClockDomain {
-  pub fn new() -> ClockDomain {
+impl ClockDom {
+  pub fn new() -> ClockDom {
     CLK_DOM_COUNTER.with(|counter| {
       let prev_count = counter.get();
       counter.set(prev_count + 1);
       let next_count = counter.get();
       assert_eq!(next_count, prev_count + 1);
       assert!(next_count != 0);
-      ClockDomain(next_count)
+      ClockDom(next_count)
     })
   }
 }
@@ -224,6 +226,73 @@ impl OperatorStack {
   }
 }
 
+pub struct Clock {
+  dom:      ClockDom,
+  horizon:  usize,
+  time:     Cell<usize>,
+}
+
+impl Clock {
+  pub fn new(horizon: usize) -> Rc<Clock> {
+    Rc::new(Clock{
+      dom:      ClockDom::new(),
+      horizon:  horizon,
+      time:     Cell::new(0),
+    })
+  }
+
+  pub fn horizon(&self) -> usize {
+    self.horizon
+  }
+
+  pub fn reset_time(&self) {
+    self.time.set(0);
+  }
+
+  pub fn set_time(&self, new_time: usize) {
+    assert!(new_time < self.horizon);
+    self.time.set(new_time);
+  }
+
+  pub fn time(&self) -> usize {
+    self.time.get()
+  }
+}
+
+#[derive(Clone)]
+pub struct ConstructorConfig {
+  pub clock:    Rc<Clock>,
+}
+
+impl ConstructorConfig {
+  fn _default() -> Self {
+    ConstructorConfig{
+      clock:    Clock::new(1),
+    }
+  }
+}
+
+pub struct ConstructorStack {
+  stack:    Vec<ConstructorConfig>,
+}
+
+impl ConstructorStack {
+  pub fn current(&self) -> ConstructorConfig {
+    match self.stack.len() {
+      0 => DEFAULT_CONS.with(|cfg| cfg.clone()),
+      _ => self.stack[self.stack.len() - 1].clone()
+    }
+  }
+
+  pub fn push(&mut self, cfg: ConstructorConfig) {
+    self.stack.push(cfg);
+  }
+
+  pub fn pop(&mut self) -> Option<ConstructorConfig> {
+    self.stack.pop()
+  }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Symbol {
   pub node_id:  NodeId,
@@ -266,6 +335,11 @@ impl Var {
 
 pub fn var_set() -> VarSet {
   VarSet::empty()
+}
+
+#[derive(Clone)]
+pub struct VarSetMask {
+  mask:     FnvHashSet<Var>,
 }
 
 #[derive(Clone)]
@@ -366,11 +440,11 @@ pub trait AutodiffOp {
 
   fn _init(&self, _txn: TxnId, _seed_rng: Rc<RefCell<ChaChaRng>>) {}
   fn _forward(&self, txn: TxnId);
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) { unimplemented!(); }
+  fn _backward(&self, _txn: TxnId) { unimplemented!(); }
   fn _backward_store_grad(&self, _txn: TxnId, _vars: &mut VarSet, _offset: usize, _writer: &mut Any) -> usize { unimplemented!(); }
-  fn _r_forward(&self, _txn: TxnId, _gauss_newton: bool) { unimplemented!(); }
+  /*fn _r_forward(&self, _txn: TxnId) { unimplemented!(); }
   fn _r_backward(&self, _txn: TxnId) { unimplemented!(); }
-  fn _backward2(&self, _txn: TxnId) { unimplemented!(); }
+  fn _backward2(&self, _txn: TxnId) { unimplemented!(); }*/
 
   fn _reset_clock(&self) {}
   fn _set_clock(&self, _clk: usize) { unimplemented!(); }
@@ -444,7 +518,7 @@ pub trait AutodiffOp {
     offset
   }
 
-  fn load_r_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut SerialIoBuf) -> usize {
+  /*fn load_r_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     reader.reset();
@@ -454,7 +528,7 @@ pub trait AutodiffOp {
     });
     vars.unmask_all();
     offset
-  }
+  }*/
 
   fn store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
     let epoch = Epoch::new(self._id());
@@ -480,7 +554,7 @@ pub trait AutodiffOp {
     offset
   }
 
-  fn store_r_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut SerialIoBuf) -> usize {
+  /*fn store_r_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
@@ -490,9 +564,9 @@ pub trait AutodiffOp {
     });
     vars.unmask_all();
     offset
-  }
+  }*/
 
-  fn store_grad2(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut SerialIoBuf) -> usize {
+  /*fn store_grad2(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut SerialIoBuf) -> usize {
     let epoch = Epoch::new(self._id());
     vars.unmask_all();
     writer.reset();
@@ -502,7 +576,7 @@ pub trait AutodiffOp {
     });
     vars.unmask_all();
     offset
-  }
+  }*/
 
   fn init(&self, txn: TxnId, seed_rng: Rc<RefCell<ChaChaRng>>) {
     let epoch = Epoch::new(self._id());
@@ -563,10 +637,10 @@ pub trait AutodiffSink: AutodiffOp {
     self._push(epoch, &mut |op| { op._forward(txn); });
     self._pop(epoch, &mut |_op| {});
     self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self._pop(epoch, &mut |op| { op._backward(txn); });
   }
 
-  fn gauss_newton_vector_product(&self, txn: TxnId) {
+  /*fn gauss_newton_vector_product(&self, txn: TxnId) {
     let epoch = Epoch::new(self._id());
     self._set_source(txn);
     self._push(epoch, &mut |op| { op._forward(txn); });
@@ -599,7 +673,7 @@ pub trait AutodiffSink: AutodiffOp {
     self._pop(epoch, &mut |op| { op._backward(txn, false); });
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, &mut |op| { op._backward2(txn); });
-  }
+  }*/
 }
 
 impl<Op> AutodiffOp for Op where Op: AutodiffSink {
@@ -627,12 +701,12 @@ impl<Op> AutodiffOp for Op where Op: AutodiffSink {
     self._op()._forward(txn);
   }
 
-  default fn _backward(&self, txn: TxnId, gauss_newton: bool) {
-    self._op()._backward(txn, gauss_newton);
+  default fn _backward(&self, txn: TxnId) {
+    self._op()._backward(txn);
   }
 
-  default fn _r_forward(&self, txn: TxnId, gauss_newton: bool) {
-    self._op()._r_forward(txn, gauss_newton);
+  /*default fn _r_forward(&self, txn: TxnId) {
+    self._op()._r_forward(txn);
   }
 
   default fn _r_backward(&self, txn: TxnId) {
@@ -641,17 +715,24 @@ impl<Op> AutodiffOp for Op where Op: AutodiffSink {
 
   default fn _backward2(&self, txn: TxnId) {
     self._op()._backward2(txn);
-  }
+  }*/
 }
 
 pub trait OutputData: Clone {
-  fn vars(&self) -> VarSet;
+  fn _vars(&self) -> VarSet;
+}
+
+impl OutputData for () {
+  fn _vars(&self) -> VarSet {
+    var_set()
+  }
 }
 
 pub trait OutputOp: AutodiffOp {
   type Data: OutputData;
 
   fn _own_data(&self) -> &Self::Data;
+  fn adjoint(&self) -> Rc<OutputOp<Data=Self::Data>> { unimplemented!(); }
 
   fn from(op: Rc<Self>) -> Rc<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
   fn from_shared(op: Arc<Self>) -> Arc<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
@@ -662,25 +743,28 @@ pub trait OutputOp: AutodiffOp {
   }
 
   fn vars(&self) -> VarSet {
-    self._own_data().vars()
+    self._own_data()._vars()
   }
 }
 
-pub type ArrayOpNew<A> = OutputOp<Data=A>;
+// Requires working trait aliases.
+// See rust-lang issue #41517 and RFC #1733 for details.
+/*pub trait ArrayOp<A> = OutputOp<Data=ArrayData<A>>;*/
 
 pub trait ArrayOp<A>: AutodiffOp {
-  fn _data(&self) -> &ArrayData<A>;
+  fn _own_data(&self) -> &ArrayData<A>;
+  fn adjoint(&self) -> Rc<ArrayOp<A>> { unimplemented!(); }
 
   fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op }
   fn from_shared(op: Arc<Self>) -> Arc<ArrayOp<A>> where Self: 'static + Sized { op }
   fn from_owned(op: Box<Self>) -> Box<ArrayOp<A>> where Self: 'static + Sized { op }
 
   fn data(&self) -> ArrayData<A> {
-    self._data().clone()
+    self._own_data().clone()
   }
 
   fn vars(&self) -> VarSet {
-    self._data().vars()
+    self._own_data()._vars()
   }
 }
 
@@ -688,7 +772,7 @@ pub struct NullIo;
 pub struct ZeroIo;
 pub struct MaxCapacityIo;
 
-pub trait SerialIoBuf: Any {
+/*pub trait SerialIoBuf: Any {
   fn reset(&mut self);
   fn as_any(&mut self) -> &mut Any;
 }
@@ -763,7 +847,7 @@ impl<'a, T> CursorIoBufExt<'a> for CursorIoBuf<Vec<T>> where T: 'a {
     self.offset += length;
     buf
   }
-}
+}*/
 
 pub trait ArrayStorage<Idx> {
   fn alloc(dim: Idx) -> Self where Self: Sized;
@@ -966,7 +1050,7 @@ impl<A> TxnVar<A> {
   }
 
   /// Rollover this variable to a new transaction if this variable is
-  /// a member of the provided variable set. Otherwise, invalidate it.
+  /// a member of the provided variable set.
   pub fn rollover(&self, txn: TxnId, vars: &mut VarSet) {
     let clk = self.curr_clk.get();
     let buf = &self.clk_bufs[clk];
@@ -1295,6 +1379,18 @@ impl<A> Clone for ArrayData<A> {
   }
 }
 
+impl<A> OutputData for ArrayData<A> {
+  fn _vars(&self) -> VarSet {
+    VarSet::empty()
+      .add(self.val.var())
+      .add(self.grad.var())
+      /*.add(self.r_val.var())
+      .add(self.r_grad.var())
+      .add(self.val2.var())
+      .add(self.grad2.var())*/
+  }
+}
+
 impl<A> ArrayData<A> {
   pub fn new(clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let symbol = Symbol::new();
@@ -1310,45 +1406,35 @@ impl<A> ArrayData<A> {
     }
   }
 
-  pub fn horizon(&self) -> usize {
-    self.clk_horizon
+  pub fn rollover_all(&self, txn: TxnId, vars: &mut VarSet) {
+    self.val.rollover(txn, vars);
+    self.grad.rollover(txn, vars);
+    /*self.r_val.rollover(txn, vars);
+    self.r_grad.rollover(txn, vars);
+    self.val2.rollover(txn, vars);
+    self.grad2.rollover(txn, vars);*/
   }
 
-  pub fn vars(&self) -> VarSet {
-    VarSet::empty()
-      .add(self.val.var())
-      .add(self.grad.var())
-      .add(self.r_val.var())
-      .add(self.r_grad.var())
-      .add(self.val2.var())
-      .add(self.grad2.var())
+  pub fn horizon(&self) -> usize {
+    self.clk_horizon
   }
 
   pub fn reset_clock_all(&self) {
     self.val.reset_clock();
     self.grad.reset_clock();
-    self.r_val.reset_clock();
+    /*self.r_val.reset_clock();
     self.r_grad.reset_clock();
     self.val2.reset_clock();
-    self.grad2.reset_clock();
+    self.grad2.reset_clock();*/
   }
 
   pub fn set_clock_all(&self, clk: usize) {
     self.val.set_clock(clk);
     self.grad.set_clock(clk);
-    self.r_val.set_clock(clk);
+    /*self.r_val.set_clock(clk);
     self.r_grad.set_clock(clk);
     self.val2.set_clock(clk);
-    self.grad2.set_clock(clk);
-  }
-
-  pub fn rollover_all(&self, txn: TxnId, vars: &mut VarSet) {
-    self.val.rollover(txn, vars);
-    self.grad.rollover(txn, vars);
-    self.r_val.rollover(txn, vars);
-    self.r_grad.rollover(txn, vars);
-    self.val2.rollover(txn, vars);
-    self.grad2.rollover(txn, vars);
+    self.grad2.set_clock(clk);*/
   }
 }
 

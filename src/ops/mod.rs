@@ -140,8 +140,10 @@ pub struct CopyConstant<A> where A: Copy {
 pub struct ArraySrc<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  data:     ArrayData<A>,
+  horizon:  usize,
   clock:    bool,
+  alloc:    Rc<Fn(TxnId, NodeId) -> A>,
+  data:     ArrayData<A>,
 }
 
 impl<A> ArraySrc<A> {
@@ -150,15 +152,22 @@ impl<A> ArraySrc<A> {
     Rc::new(ArraySrc{
       node_id:  node,
       stack:    OperatorStack::new(node, 0),
-      data:     ArrayData::new(horizon, alloc),
+      horizon:  horizon,
       clock:    clock,
+      alloc:    alloc.clone(),
+      data:     ArrayData::new(horizon, alloc),
     })
   }
 }
 
-impl<A> ArrayOp<A> for ArraySrc<A> where ArraySrc<A>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<A> {
+impl<A> ArrayOp<A> for ArraySrc<A> where A: 'static, ArraySrc<A>: AutodiffOp {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.data
+  }
+
+  default fn adjoint(&self) -> Rc<ArrayOp<A>> {
+    let adj_src_ = ArraySrc::new(self.horizon, self.clock, self.alloc.clone());
+    adj_src_
   }
 }
 
@@ -237,17 +246,7 @@ impl AutodiffOp for ArraySrc<f32> {
   fn _forward(&self, _txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    /*let node = self._id();
-    if self.data.r_val.overwrite(txn, node) {
-      *self.data.r_val.get_excl(txn, node) = 0.0;
-    }*/
-  }
-
-  fn _r_backward(&self, _txn: TxnId) {
+  fn _backward(&self, _txn: TxnId) {
   }
 
   fn _reset_clock(&self) {
@@ -337,18 +336,7 @@ impl AutodiffOp for ArraySrc<Batch<u32>> {
   fn _forward(&self, _txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    /*let node = self._id();
-    if self.data.r_val.overwrite(txn, node) {
-      // TODO
-      // *self.data.r_val.get_excl(txn, node) = 0.0;
-    }*/
-  }
-
-  fn _r_backward(&self, _txn: TxnId) {
+  fn _backward(&self, _txn: TxnId) {
   }
 
   fn _reset_clock(&self) {
@@ -416,17 +404,7 @@ impl AutodiffOp for ArraySrc<Array1d<f32>> {
   fn _forward(&self, _txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    let node = self._id();
-    if self.data.r_val.overwrite(txn, node) {
-      self.data.r_val.get_excl(txn, node).as_view_mut().set_constant(0.0);
-    }
-  }
-
-  fn _r_backward(&self, _txn: TxnId) {
+  fn _backward(&self, _txn: TxnId) {
   }
 
   fn _reset_clock(&self) {
@@ -500,17 +478,7 @@ impl AutodiffOp for ArraySrc<Array2d<f32>> {
   fn _forward(&self, _txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    let node = self._id();
-    if self.data.r_val.overwrite(txn, node) {
-      self.data.r_val.get_excl(txn, node).as_view_mut().flatten_mut().set_constant(0.0);
-    }
-  }
-
-  fn _r_backward(&self, _txn: TxnId) {
+  fn _backward(&self, _txn: TxnId) {
   }
 
   fn _reset_clock(&self) {
@@ -584,17 +552,7 @@ impl AutodiffOp for ArraySrc<Array4d<f32>> {
   fn _forward(&self, _txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    let node = self._id();
-    if self.data.r_val.overwrite(txn, node) {
-      self.data.r_val.get_excl(txn, node).as_view_mut().flatten_mut().set_constant(0.0);
-    }
-  }
-
-  fn _r_backward(&self, _txn: TxnId) {
+  fn _backward(&self, _txn: TxnId) {
   }
 
   fn _reset_clock(&self) {
@@ -635,7 +593,7 @@ impl<A> PassOp<A> {
 }
 
 impl<A> ArrayOp<A> for PassOp<A> {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }
@@ -668,7 +626,7 @@ impl<A> AutodiffOp for PassOp<A> {
   default fn _forward(&self, txn: TxnId) {
   }
 
-  default fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  default fn _backward(&self, _txn: TxnId) {
   }
 }
 
@@ -697,7 +655,7 @@ impl<A> NoPassOp<A> {
 }
 
 impl<A> ArrayOp<A> for NoPassOp<A> {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }
@@ -728,7 +686,7 @@ impl<A> AutodiffOp for NoPassOp<A> {
   default fn _forward(&self, txn: TxnId) {
   }
 
-  default fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  default fn _backward(&self, _txn: TxnId) {
   }
 }
 
@@ -753,7 +711,7 @@ impl<A> IoOp<A> {
 }
 
 impl<A> ArrayOp<A> for IoOp<A> {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }
@@ -798,7 +756,7 @@ impl<A> AutodiffOp for IoOp<A> {
   default fn _forward(&self, txn: TxnId) {
   }
 
-  default fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  default fn _backward(&self, _txn: TxnId) {
   }
 }
 
@@ -908,13 +866,13 @@ impl<Op, A, F> InitializeExt<A, F, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, 
 }
 
 impl<A, Init> ArrayOp<A> for InitializeOp<A, Init> where InitializeOp<A, Init>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }
 
 /*impl ArrayOp<f32> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
-  fn _data(&self) -> &ArrayData<A> {
+  fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }*/
@@ -955,7 +913,7 @@ impl AutodiffOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>
   fn _forward(&self, txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, _txn: TxnId) {
   }
 }
 
@@ -995,7 +953,7 @@ impl<S> AutodiffOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<Ref
   fn _forward(&self, txn: TxnId) {
   }
 
-  fn _backward(&self, _txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, _txn: TxnId) {
   }
 }
 
@@ -1039,7 +997,7 @@ impl<Cond, On, Off, Data> OutputOp for BranchOp<Cond, On, Off, Data> where Branc
 }
 
 impl<Cond, On, Off, A> ArrayOp<A> for BranchOp<Cond, On, Off, ArrayData<A>> where BranchOp<Cond, On, Off, ArrayData<A>>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.output
   }
 }
@@ -1105,7 +1063,7 @@ impl<A, MapF> MapOp<A, MapF> {
 }
 
 impl<A, MapF> ArrayOp<A> for MapOp<A, MapF> where MapOp<A, MapF>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.y
   }
 }
@@ -1151,7 +1109,7 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, RectMapKernel> where S: DerefMut<T
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let y_dim = self.y.grad.get(txn, node).dim();
@@ -1164,7 +1122,7 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, RectMapKernel> where S: DerefMut<T
     }
   }
 
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+  /*fn _r_forward(&self, txn: TxnId) {
     let node = self._id();
     if self.y.r_val.overwrite(txn, node) {
       let x_dim = self.x.r_val.get(txn, node).dim();
@@ -1201,7 +1159,7 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, RectMapKernel> where S: DerefMut<T
           self.x.grad2.get_mut(txn, node).as_view_mut().as_mut_ptr(),
       ) };
     }
-  }
+  }*/
 }
 
 impl<S> AutodiffOp for MapOp<Array1d<f32, S>, LogisticMapKernel> where S: DerefMut<Target=[f32]> {
@@ -1217,7 +1175,7 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, LogisticMapKernel> where S: DerefM
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let y_dim = self.y.grad.get(txn, node).dim();
@@ -1228,14 +1186,6 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, LogisticMapKernel> where S: DerefM
           self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
       ) };
     }
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
-    unimplemented!();
   }
 }
 
@@ -1252,7 +1202,7 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, TanhMapKernel> where S: DerefMut<T
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let y_dim = self.y.grad.get(txn, node).dim();
@@ -1263,14 +1213,6 @@ impl<S> AutodiffOp for MapOp<Array1d<f32, S>, TanhMapKernel> where S: DerefMut<T
           self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
       ) };
     }
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
-    unimplemented!();
   }
 }
 
@@ -1330,7 +1272,7 @@ impl<A, B, Transform> TransformOp<A, B, Transform> {
 }
 
 impl<A, B, Transform> ArrayOp<B> for TransformOp<A, B, Transform> where TransformOp<A, B, Transform>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<B> {
+  default fn _own_data(&self) -> &ArrayData<B> {
     &self.y
   }
 }
@@ -1379,14 +1321,14 @@ impl<S> AutodiffOp for TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTran
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       self.x.grad.get_mut(txn, node).as_view_mut().flatten_mut().add(1.0, self.y.grad.get(txn, node).as_view());
     }
   }
 
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+  /*fn _r_forward(&self, txn: TxnId) {
     let node = self._id();
     if self.y.r_val.overwrite(txn, node) {
       self.y.r_val.get_excl(txn, node).as_view_mut().copy(self.x.r_val.get(txn, node).as_view().flatten());
@@ -1398,7 +1340,7 @@ impl<S> AutodiffOp for TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTran
     if self.x.r_grad.accumulate(txn, node, |r_grad| r_grad.as_view_mut().set_constant(0.0)) {
       self.x.r_grad.get_mut(txn, node).as_view_mut().flatten_mut().add(1.0, self.y.r_grad.get(txn, node).as_view());
     }
-  }
+  }*/
 }
 
 pub struct JoinOp<A, JoinF> {
@@ -1433,7 +1375,7 @@ impl<A, JoinF> JoinOp<A, JoinF> {
 }
 
 impl<A, JoinF> ArrayOp<A> for JoinOp<A, JoinF> where JoinOp<A, JoinF>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.y
   }
 }
@@ -1530,7 +1472,7 @@ impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     for x in self.xs.iter() {
       if x.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
@@ -1539,7 +1481,7 @@ impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<
     }
   }
 
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+  /*fn _r_forward(&self, txn: TxnId) {
     let node = self._id();
     if self.y.r_val.overwrite(txn, node) {
       self.y.r_val.get_excl(txn, node).as_view_mut().copy(self.xs[0].r_val.get(txn, node).as_view());
@@ -1556,7 +1498,7 @@ impl<S> AutodiffOp for JoinOp<Array1d<f32, S>, SumJoinKernel> where S: DerefMut<
         x.r_grad.get_mut(txn, node).as_view_mut().add(1.0, self.y.r_grad.get(txn, node).as_view());
       }
     }
-  }
+  }*/
 }
 
 pub struct SplitOp<A, SplitF> {
@@ -1620,67 +1562,79 @@ impl<A, Clip, Kernel> ClipOp<A, Clip, Kernel> {
 }
 
 impl<A, Clip, Kernel> ArrayOp<A> for ClipOp<A, Clip, Kernel> where ClipOp<A, Clip, Kernel>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<A> {
+  default fn _own_data(&self) -> &ArrayData<A> {
     &self.y
   }
 }
 
-pub trait MultExt<A, V, W, B> {
-  fn mult(&self, x: Rc<ArrayOp<V>>) -> Rc<LinearOp<A, V, W, B>>;
-  fn mult_add(&self, x: Rc<ArrayOp<V>>, b: Rc<ArrayOp<B>>) -> Rc<LinearOp<A, V, W, B>>;
+pub trait MultExt<A, B, V, W> {
+  fn mult(&self, x: Rc<ArrayOp<V>>) -> Rc<LinearOp<A, B, V, W>>;
+  fn mult_add(&self, x: Rc<ArrayOp<V>>, b: Rc<ArrayOp<B>>) -> Rc<LinearOp<A, B, V, W>>;
 }
 
-pub struct LinearOp<A, V, W, B> {
+pub struct LinearOp<A, B, V, W> {
   node_id:  NodeId,
   stack:    OperatorStack,
   a_:   Rc<ArrayOp<A>>,
-  x_:   Rc<ArrayOp<V>>,
   b_:   Option<Rc<ArrayOp<B>>>,
+  x_:   Rc<ArrayOp<V>>,
   a:    ArrayData<A>,
-  x:    ArrayData<V>,
   b:    Option<ArrayData<B>>,
+  x:    ArrayData<V>,
   y:    ArrayData<W>,
   tmp:  ArrayData<W>,
 }
 
-impl<A, V, W, B> LinearOp<A, V, W, B> {
-  pub fn new<F>(a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, b_: Option<Rc<ArrayOp<B>>>, clk_horizon: usize, alloc: Rc<F>) -> Rc<LinearOp<A, V, W, B>> where F: 'static + Fn(TxnId, NodeId) -> W {
+impl<A, B, V, W> LinearOp<A, B, V, W> {
+  pub fn new<F>(a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, b_: Option<Rc<ArrayOp<B>>>, clk_horizon: usize, alloc: Rc<F>) -> Rc<LinearOp<A, B, V, W>> where F: 'static + Fn(TxnId, NodeId) -> W {
     let node = NodeId::new();
     let in_degree = match b_ {
       None    => 2,
       Some(_) => 3,
     };
     let a = a_.data();
-    let x = x_.data();
     let b = b_.as_ref().map(|b_| b_.data());
+    let x = x_.data();
     Rc::new(LinearOp{
       node_id:  node,
       stack:    OperatorStack::new(node, in_degree),
       a_:   a_,
-      x_:   x_,
       b_:   b_,
+      x_:   x_,
       a:    a,
-      x:    x,
       b:    b,
+      x:    x,
       y:    ArrayData::new(clk_horizon, alloc.clone()),
       tmp:  ArrayData::new(1, alloc),
     })
   }
 }
 
-impl<A, V, W, B> ArrayOp<W> for LinearOp<A, V, W, B> where LinearOp<A, V, W, B>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<W> {
+impl<A, B, V, W> ArrayOp<W> for LinearOp<A, B, V, W> where LinearOp<A, B, V, W>: AutodiffOp {
+  default fn _own_data(&self) -> &ArrayData<W> {
     &self.y
   }
+
+  // FIXME(20170530): requires extra trait bounds on inputs.
+  /*default fn adjoint(&self) -> Rc<ArrayOp<W>> {
+    let adj_a_ = self.a_.adjoint();
+    let adj_b_ = self.b_.as_ref().map(|b_| b_.adjoint());
+    let adj_x_ = self.x_.adjoint();
+    let adj_y_ = match adj_b_ {
+      None          => self.a_.mult(adj_x_).add(adj_a_.mult(self.x_.clone())),
+      Some(adj_b_)  => self.a_.mult(adj_x_).add(adj_a_.mult_add(self.x_.clone(), adj_b_)),
+    };
+    adj_y_
+  }*/
 }
 
-impl<Op, S> MultExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> where Op: 'static + ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
-  fn mult(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32>> {
+impl<Op, S> MultExt<Array1d<f32, S>, f32, Array1d<f32, S>, f32> for Rc<Op> where Op: 'static + ArrayOp<Array1d<f32, S>>, S: DerefMut<Target=[f32]> {
+  fn mult(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array1d<f32, S>, f32, Array1d<f32, S>, f32>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_, None, clk_horizon, Rc::new(|_, _| 0.0_f32))
   }
 
-  fn mult_add(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>, b_: Rc<ArrayOp<f32>>) -> Rc<LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32>> {
+  fn mult_add(&self, x_: Rc<ArrayOp<Array1d<f32, S>>>, b_: Rc<ArrayOp<f32>>) -> Rc<LinearOp<Array1d<f32, S>, f32, Array1d<f32, S>, f32>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_, Some(b_), clk_horizon, Rc::new(|_, _| 0.0_f32))
   }
@@ -1696,7 +1650,7 @@ impl<Op, S> MultExt<Array1d<f32, S>, Array1d<f32, S>, f32, f32> for Rc<Op> where
   }
 }*/
 
-impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, f32, Array1d<f32, S>, f32> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1737,7 +1691,7 @@ impl<S> AutodiffOp for LinearOp<Array1d<f32, S>, Array1d<f32, S>, f32, f32> wher
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       //println!("DEBUG: LinearOp: backward: a.grad: before: {:?}", &self.a.grad.get_mut(txn, node).as_slice()[ .. 5]);
@@ -1784,7 +1738,7 @@ impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, 
 }
 
 /*impl<S> ArrayOp<Array1d<f32, S>> for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn _data(&self) -> &ArrayData<A> {
+  fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }*/
@@ -1835,7 +1789,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let x_dim = self.x.val.get(txn, node).dim();
@@ -1862,7 +1816,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
     }
   }
 
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
+  /*fn _r_forward(&self, txn: TxnId) {
     let node = self._id();
     if self.y.r_val.overwrite(txn, node) {
       self.y.r_val.get_mut(txn, node).as_view_mut().matrix_vector_prod(
@@ -1920,11 +1874,11 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S
         b.r_grad.get_mut(txn, node).as_view_mut().add(1.0, self.y.r_grad.get(txn, node).as_view());
       }
     }
-  }
+  }*/
 }
 
-impl<S> MultExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
-  fn mult(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
+impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>> for Rc<ArrayOp<Array2d<f32, S>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
+  fn mult(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
       let x = x_.clone().data();
@@ -1937,7 +1891,7 @@ impl<S> MultExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Arr
     })
   }
 
-  fn mult_add(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>, b_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>>> {
+  fn mult_add(&self, x_: Rc<ArrayOp<BatchArray1d<f32, S>>>, b_: Rc<ArrayOp<Array1d<f32, S>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>>> {
     let clk_horizon = x_.data().horizon();
     LinearOp::new(self.clone(), x_.clone(), Some(b_), clk_horizon, {
       let x = x_.clone().data();
@@ -1952,12 +1906,12 @@ impl<S> MultExt<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Arr
 }
 
 /*impl<S> ArrayOp<BatchArray1d<f32, S>> for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn _data(&self) -> &ArrayData<A> {
+  fn _own_data(&self) -> &ArrayData<A> {
     &self.data
   }
 }*/
 
-impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
+impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -2005,7 +1959,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     if self.a.grad.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       self.a.grad.get_mut(txn, node).as_view_mut().matrix_prod(
@@ -2030,7 +1984,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
     }
   }
 
-  fn _backward2(&self, txn: TxnId) {
+  /*fn _backward2(&self, txn: TxnId) {
     let node = self._id();
     if self.a.grad2.accumulate(txn, node, |grad| grad.as_view_mut().set_constant(0.0)) {
       let tmp_txn = TxnId::new();
@@ -2057,7 +2011,7 @@ impl<S> AutodiffOp for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArra
     if let Some(ref b) = self.b {
       unimplemented!();
     }
-  }
+  }*/
 }
 
 pub struct BroadcastAddOp<A, V> {
@@ -2095,7 +2049,7 @@ pub trait BroadcastAddExt<A, V> {
 }
 
 impl<A, V> ArrayOp<V> for BroadcastAddOp<A, V> where BroadcastAddOp<A, V>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<V> {
+  default fn _own_data(&self) -> &ArrayData<V> {
     &self.y
   }
 }
@@ -2153,7 +2107,7 @@ pub trait ElemMultExt<A, V> {
 }*/
 
 impl<A, V, Kernel> ArrayOp<V> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<A, V, Kernel>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<V> {
+  default fn _own_data(&self) -> &ArrayData<V> {
     &self.y
   }
 }
@@ -2200,22 +2154,7 @@ impl<S> AutodiffOp for ElemLinearOp<f32, BatchArray3d<f32, S>, BroadcastMultAddK
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    // TODO
-    unimplemented!();
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    // TODO
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
-    // TODO
-    unimplemented!();
-  }
-
-  fn _backward2(&self, txn: TxnId) {
+  fn _backward(&self, txn: TxnId) {
     // TODO
     unimplemented!();
   }
@@ -2263,22 +2202,7 @@ impl<S> AutodiffOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, ElemN
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    // TODO
-    unimplemented!();
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    // TODO
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
-    // TODO
-    unimplemented!();
-  }
-
-  fn _backward2(&self, txn: TxnId) {
+  fn _backward(&self, txn: TxnId) {
     // TODO
     unimplemented!();
   }
@@ -2325,7 +2249,7 @@ pub trait ElemNormalizeExt<Idx, A, V> where Idx: ArrayIndex {
 }
 
 impl<Idx, A, V> ArrayOp<V> for ElemNormalizeOp<Idx, A, V> where ElemNormalizeOp<Idx, A, V>: AutodiffOp, Idx: ArrayIndex {
-  default fn _data(&self) -> &ArrayData<V> {
+  default fn _own_data(&self) -> &ArrayData<V> {
     &self.y
   }
 }
@@ -2460,19 +2384,7 @@ impl<S> AutodiffOp for ConvOp<(usize, usize), Array4d<f32, S>, Array1d<f32, S>, 
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
-    unimplemented!();
-  }
-
-  fn _backward2(&self, txn: TxnId) {
+  fn _backward(&self, txn: TxnId) {
     unimplemented!();
   }
 }
@@ -2568,7 +2480,7 @@ impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIn
 }
 
 impl<Idx, V, Kernel, Backend> ArrayOp<V> for PoolOp<Idx, V, Kernel, Backend> where PoolOp<Idx, V, Kernel, Backend>: AutodiffOp, Idx: ArrayIndex {
-  fn _data(&self) -> &ArrayData<V> {
+  fn _own_data(&self) -> &ArrayData<V> {
     &self.y
   }
 }
@@ -3004,7 +2916,7 @@ impl<S> AutodiffOp for BatchStatsOp<(usize, usize), BatchArray3d<f32, S>, Array1
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     unimplemented!();
   }
 }
@@ -3029,7 +2941,7 @@ pub struct IndexOp<A, Idx, Out> {
 }
 
 impl<A, Idx, Out> ArrayOp<Out> for IndexOp<A, Idx, Out> where IndexOp<A, Idx, Out>: AutodiffOp {
-  fn _data(&self) -> &ArrayData<Out> {
+  fn _own_data(&self) -> &ArrayData<Out> {
     &self.y
   }
 }
@@ -3090,7 +3002,7 @@ pub fn batch_sum<Op, A, B>(x_: Rc<Op>) -> Rc<BatchJoinOp<A, B, SumJoinKernel>> w
 }*/
 
 impl<A, B, Join> ArrayOp<B> for BatchJoinOp<A, B, Join> where BatchJoinOp<A, B, Join>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<B> {
+  default fn _own_data(&self) -> &ArrayData<B> {
     &self.y
   }
 }
@@ -3140,7 +3052,7 @@ impl AutodiffOp for BatchJoinOp<Batch<f32>, f32, SumJoinKernel> {
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     let batch_sz = self.x.val.get(txn, node).batch_size();
     if self.x.grad.accumulate(txn, node, |grad| grad.reshape_mut(batch_sz).set_constant(0.0)) {
@@ -3197,7 +3109,7 @@ impl AutodiffOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
     }
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
+  fn _backward(&self, txn: TxnId) {
     let node = self._id();
     let clk = self.curr_clk.get();
     let y_grad = self.y.grad.get_clk(clk, txn, node);
@@ -3279,7 +3191,7 @@ impl GradientSinkExt for GradientSink<f32> {
     self._set_grad_sink(txn);
     let epoch = Epoch::new(self.x_._id());
     self.x_._push(epoch, &mut |_op| {});
-    self.x_._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self.x_._pop(epoch, &mut |op| { op._backward(txn); });
   }
 }
 
@@ -3312,7 +3224,7 @@ impl GaussNewtonSinkExt for GaussNewtonSink<Batch<f32>> {
     self._set_grad_sink(txn);
     let epoch = Epoch::new(self.x_._id());
     self.x_._push(epoch, &mut |_op| {});
-    self.x_._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self.x_._pop(epoch, &mut |op| { op._backward(txn); });
   }
 }
 
@@ -3351,11 +3263,11 @@ impl HessianSinkExt for HessianSink<f32> {
     self._set_grad_sink(txn);
     let epoch = Epoch::new(self.x_._id());
     self.x_._push(epoch, &mut |_op| {});
-    self.x_._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self.x_._pop(epoch, &mut |op| { op._backward(txn); });
     self._set_r_grad_sink(txn);
     let epoch = Epoch::new(self.rx_._id());
     self.rx_._push(epoch, &mut |_op| {});
-    self.rx_._pop(epoch, &mut |op| { op._backward(txn, false); });
+    self.rx_._pop(epoch, &mut |op| { op._backward(txn); });
   }
 }
 
@@ -3398,64 +3310,10 @@ impl<A, Loss> LstSqLoss<A, Loss> {
 }
 
 impl<A, Loss> ArrayOp<Loss> for LstSqLoss<A, Loss> where LstSqLoss<A, Loss>: AutodiffOp {
-  default fn _data(&self) -> &ArrayData<Loss> {
+  default fn _own_data(&self) -> &ArrayData<Loss> {
     &self.loss
   }
 }
-
-/*impl AutodiffOp for LstSqLoss<Batch<f32>> {
-  fn _id(&self) -> NodeId {
-    self.node_id
-  }
-
-  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
-    if 1 == self.stack.push(epoch) {
-      self.x_._push(epoch, apply);
-      self.target_._push(epoch, apply);
-      apply(self);
-    }
-  }
-
-  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
-    if self.stack.degree(epoch) == self.stack.pop(epoch) {
-      apply(self);
-      self.target_._pop(epoch, apply);
-      self.x_._pop(epoch, apply);
-    }
-  }
-
-  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
-    self.loss.rollover_all(txn, vars);
-  }
-
-  fn _forward(&self, txn: TxnId) {
-    let node = self._id();
-    let batch_sz = self.x.val.get(txn, node).batch_size();
-    if self.loss.val.overwrite(txn, node) {
-      let mut loss_val = self.loss.val.get_mut(txn, node);
-      loss_val.set_batch_size(batch_sz, 0.0);
-      loss_val.reshape_mut(batch_sz).copy(self.x.val.get(txn, node).reshape(batch_sz));
-      loss_val.reshape_mut(batch_sz).add(-1.0, self.target.val.get(txn, node).reshape(batch_sz));
-      loss_val.reshape_mut(batch_sz).square();
-      loss_val.reshape_mut(batch_sz).scale(0.5);
-    }
-  }
-
-  fn _backward(&self, txn: TxnId, gauss_newton: bool) {
-    let node = self._id();
-    if gauss_newton {
-      unimplemented!();
-    } else {
-      let batch_sz = self.x.val.get(txn, node).batch_size();
-      if self.x.grad.accumulate(txn, node, |grad| grad.reshape_mut(batch_sz).set_constant(0.0)) {
-        self.x.grad.get_mut(txn, node).set_batch_size(batch_sz, 0.0);
-        // FIXME(20170209): mix with `loss.grad`; requires a tmp variable.
-        self.x.grad.get_mut(txn, node).reshape_mut(batch_sz).add(1.0, self.x.val.get(txn, node).reshape(batch_sz));
-        self.x.grad.get_mut(txn, node).reshape_mut(batch_sz).add(-1.0, self.target.val.get(txn, node).reshape(batch_sz));
-      }
-    }
-  }
-}*/
 
 pub struct KL1LossLink;
 pub struct KL2LossLink;
@@ -3611,15 +3469,7 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, BatchArray1d<f32, S>, B
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
+  fn _backward(&self, txn: TxnId) {
     unimplemented!();
   }
 }
@@ -3657,15 +3507,7 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<(u32, f32)>, Batc
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
+  fn _backward(&self, txn: TxnId) {
     unimplemented!();
   }
 }
@@ -3703,15 +3545,7 @@ impl<S> AutodiffOp for SoftmaxLoss<BatchArray1d<f32, S>, Batch<u32>, Batch<f32>,
     unimplemented!();
   }
 
-  fn _backward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_forward(&self, txn: TxnId, _gauss_newton: bool) {
-    unimplemented!();
-  }
-
-  fn _r_backward(&self, txn: TxnId) {
+  fn _backward(&self, txn: TxnId) {
     unimplemented!();
   }
 }
