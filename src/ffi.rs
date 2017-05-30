@@ -45,23 +45,111 @@ extern "C" {
   pub fn arraydiff_cuda_kernel_cast_u8_to_f32(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_cast_u8x4_to_f32x4(dim: usize, x: *const u8, y: *mut f32, stream: cudaStream_t);
 
-  pub fn arraydiff_cuda_kernel_conv_bcast_add_fwd_f32(
-      spatial_dim: usize,
+  /* Source: "cuda_kernels/linear.cu" */
+
+  /* Broadcast add kernels: [a] . [an] -> [an] */
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2an_O1an_fwd_f32(
       chan_dim: usize,
       batch_sz: usize,
-      x: *const f32,
       shift: *const f32,
+      x: *const f32,
       y: *mut f32,
       stream: cudaStream_t);
-  pub fn arraydiff_cuda_kernel_conv_bcast_add_param_bwd_nonatomic_f32(
-      spatial_dim: usize,
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2an_O1an_fwdaccum_f32(
+      chan_dim: usize,
+      batch_sz: usize,
+      shift: *const f32,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2an_O1an_bwd_shift_deterministic_f32(
       chan_dim: usize,
       batch_sz: usize,
       y_grad: *const f32,
       shift_grad: *mut f32,
       stream: cudaStream_t);
-  pub fn arraydiff_cuda_kernel_conv_bcast_add_input_bwd_f32(
-      spatial_dim: usize,
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2an_O1an_bwd_input_f32(
+      chan_dim: usize,
+      batch_sz: usize,
+      y_grad: *const f32,
+      x_grad: *mut f32,
+      stream: cudaStream_t);
+  /* Broadcast add kernels: [a] . [xyan] -> [xyan] */
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2xyan_O1xyan_fwd_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      shift: *const f32,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2xyan_O1xyan_fwdaccum_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      shift: *const f32,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2xyan_O1xyan_bwd_shift_deterministic_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      y_grad: *const f32,
+      shift_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_add_I1a_I2xyan_O1xyan_bwd_input_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      y_grad: *const f32,
+      x_grad: *mut f32,
+      stream: cudaStream_t);
+  /* Broadcast multiply-add kernels: [a] . [a] . [xyan] -> [xyan] */
+  pub fn arraydiff_cuda_kernel_bcast_mult_add_I1a_I2a_I3xyan_O1xyan_fwd_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      scale: *const f32,
+      shift: *const f32,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_mult_add_I1a_I2a_I3xyan_O1xyan_bwd_scale_shift_deterministic_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      x: *const f32,
+      y_grad: *const f32,
+      scale_grad: *mut f32,
+      shift_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_mult_add_I1a_I2a_I3xyan_O1xyan_bwd_input_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      scale: *const f32,
+      y_grad: *const f32,
+      x_grad: *mut f32,
+      stream: cudaStream_t);
+  /* Broadcast add kernels: [an] . [xyan] -> [xyan] */
+  pub fn arraydiff_cuda_kernel_bcast_add_I1an_I2xyan_O1xyan_fwd_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      shift: *const f32,
+      x: *const f32,
+      y: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_add_I1an_I2xyan_O1xyan_bwd_shift_deterministic_f32(
+      prefix_dim: usize,
+      chan_dim: usize,
+      batch_sz: usize,
+      y_grad: *const f32,
+      shift_grad: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_bcast_add_I1an_I2xyan_O1xyan_bwd_input_f32(
+      prefix_dim: usize,
       chan_dim: usize,
       batch_sz: usize,
       y_grad: *const f32,

@@ -16,6 +16,7 @@ limitations under the License.
 
 #![feature(conservative_impl_trait)]
 //#![feature(get_type_id)]
+#![feature(slice_patterns)]
 #![feature(specialization)]
 
 extern crate async_execution;

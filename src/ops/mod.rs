@@ -2069,11 +2069,11 @@ pub struct BroadcastAddOp<A, V> {
   x:    ArrayData<V>,
   y:    ArrayData<V>,
   //kernel:   K,
+  axes: Vec<usize>,
 }
 
 impl<A, V> BroadcastAddOp<A, V> {
-  // TODO: broadcast axes.
-  pub fn new(/*axes: _,*/ a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(axes: Vec<usize>, a_: Rc<ArrayOp<A>>, x_: Rc<ArrayOp<V>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let a = a_.data();
     let x = x_.data();
@@ -2085,12 +2085,13 @@ impl<A, V> BroadcastAddOp<A, V> {
       a:    a,
       x:    x,
       y:    ArrayData::new(clk_horizon, alloc.clone()),
+      axes: axes,
     })
   }
 }
 
 pub trait BroadcastAddExt<A, V> {
-  fn broadcast_add(&self, x_: Rc<ArrayOp<V>>) -> Rc<BroadcastAddOp<A, V>>;
+  fn broadcast_add(&self, axes: Vec<usize>, x_: Rc<ArrayOp<V>>) -> Rc<BroadcastAddOp<A, V>>;
 }
 
 impl<A, V> ArrayOp<V> for BroadcastAddOp<A, V> where BroadcastAddOp<A, V>: AutodiffOp {
