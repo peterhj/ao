@@ -413,23 +413,23 @@ impl VarSet {
   }
 }
 
-pub trait AutodiffOp {
+pub trait AOp {
   fn _id(&self) -> NodeId;
-  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
-  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp));
-  fn _traverse_fwd(&self, apply: &mut FnMut(&AutodiffOp)) {
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp));
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp));
+  fn _traverse_fwd(&self, apply: &mut FnMut(&AOp)) {
     let epoch = Epoch::new(self._id());
     self._push(epoch, apply);
     self._pop(epoch, &mut |_op| {});
   }
-  fn _traverse_bwd(&self, apply: &mut FnMut(&AutodiffOp)) {
+  fn _traverse_bwd(&self, apply: &mut FnMut(&AOp)) {
     let epoch = Epoch::new(self._id());
     self._push(epoch, &mut |_op| {});
     self._pop(epoch, apply);
   }
 
   //fn _serial_size(&self, _txn: TxnId, _vars: &mut VarSet) -> usize { unimplemented!(); }
-  fn _copy_val(&self, _dst_txn: TxnId, _dst_vars: &mut VarSet, _src_txn: TxnId, _src_vars: &mut VarSet, offset: usize, _src: &AutodiffOp) -> usize { offset }
+  fn _copy_val(&self, _dst_txn: TxnId, _dst_vars: &mut VarSet, _src_txn: TxnId, _src_vars: &mut VarSet, offset: usize, _src: &AOp) -> usize { offset }
   fn _load_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _reader: &mut Any) -> usize { offset }
   fn _load_r_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _reader: &mut Any) -> usize { offset }
   fn _store_val(&self, _txn: TxnId, _vars: &mut VarSet, offset: usize, _writer: &mut Any) -> usize { offset }
@@ -449,9 +449,9 @@ pub trait AutodiffOp {
   fn _reset_clock(&self) {}
   fn _set_clock(&self, _clk: usize) { unimplemented!(); }
 
-  fn from(op: Rc<Self>) -> Rc<AutodiffOp> where Self: 'static + Sized { op }
-  fn from_shared(op: Arc<Self>) -> Arc<AutodiffOp> where Self: 'static + Sized { op }
-  fn from_owned(op: Box<Self>) -> Box<AutodiffOp> where Self: 'static + Sized { op }
+  fn from(op: Rc<Self>) -> Rc<AOp> where Self: 'static + Sized { op }
+  fn from_shared(op: Arc<Self>) -> Arc<AOp> where Self: 'static + Sized { op }
+  fn from_owned(op: Box<Self>) -> Box<AOp> where Self: 'static + Sized { op }
 
   /*fn serial_size(&self, txn: TxnId, vars: &mut VarSet) -> usize {
     let epoch = Epoch::new(self._id());
@@ -626,18 +626,18 @@ pub trait HessianSinkExt {
   fn hessian_vector_product(&self, txn: TxnId);
 }
 
-//pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AutodiffOp {
-pub trait AutodiffSink: AutodiffOp {
-  fn _op(&self) -> &AutodiffOp;
+//pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AOp {
+pub trait AutodiffSink : AOp {
+  fn _op(&self) -> &AOp;
   fn _set_source(&self, txn: TxnId);
 
   fn gradient(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
+    let epoch = Epoch::new(self._op()._id());
     self._set_source(txn);
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
-    self._push(epoch, &mut |_op| {});
-    self._pop(epoch, &mut |op| { op._backward(txn); });
+    self._op()._push(epoch, &mut |op| { op._forward(txn); });
+    self._op()._pop(epoch, &mut |_op| {});
+    self._op()._push(epoch, &mut |_op| {});
+    self._op()._pop(epoch, &mut |op| { op._backward(txn); });
   }
 
   /*fn gauss_newton_vector_product(&self, txn: TxnId) {
@@ -676,16 +676,16 @@ pub trait AutodiffSink: AutodiffOp {
   }*/
 }
 
-impl<Op> AutodiffOp for Op where Op: AutodiffSink {
+impl<Op> AOp for Op where Op: AutodiffSink {
   default fn _id(&self) -> NodeId {
     self._op()._id()
   }
 
-  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
     self._op()._push(epoch, apply);
   }
 
-  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AutodiffOp)) {
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
     self._op()._pop(epoch, apply);
   }
 
@@ -718,55 +718,38 @@ impl<Op> AutodiffOp for Op where Op: AutodiffSink {
   }*/
 }
 
-pub trait OutputData: Clone {
+pub trait AVarOutput: Clone {
   fn _vars(&self) -> VarSet;
 }
 
-impl OutputData for () {
+impl AVarOutput for () {
   fn _vars(&self) -> VarSet {
     var_set()
   }
 }
 
-pub trait OutputOp: AutodiffOp {
-  type Data: OutputData;
+pub trait AVar<Out>: AOp where Out: AVarOutput {
+  fn _owned_data(&self) -> &Out;
+  fn _make_adjoint(&self) -> Rc<AVar<Out>> { unimplemented!(); }
 
-  fn _own_data(&self) -> &Self::Data;
-  fn adjoint(&self) -> Rc<OutputOp<Data=Self::Data>> { unimplemented!(); }
+  fn from(op: Rc<Self>) -> Rc<AVar<Out>> where Self: 'static + Sized { op }
+  fn from_shared(op: Arc<Self>) -> Arc<AVar<Out>> where Self: 'static + Sized { op }
+  fn from_owned(op: Box<Self>) -> Box<AVar<Out>> where Self: 'static + Sized { op }
 
-  fn from(op: Rc<Self>) -> Rc<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
-  fn from_shared(op: Arc<Self>) -> Arc<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
-  fn from_owned(op: Box<Self>) -> Box<OutputOp<Data=Self::Data>> where Self: 'static + Sized { op }
-
-  fn data(&self) -> Self::Data {
-    self._own_data().clone()
-  }
-
-  fn vars(&self) -> VarSet {
-    self._own_data()._vars()
-  }
+  fn data(&self) -> Out { self._owned_data().clone() }
+  fn vars(&self) -> VarSet { self._owned_data()._vars() }
+  fn adjoint(&self) -> Rc<AVar<Out>> { unimplemented!(); }
 }
+
+/*impl<Op> AVar<()> for Op where Op: AVar<()> {
+  default fn _owned_data(&self) -> &() { unreachable!(); }
+  default fn data(&self) -> () { () }
+  default fn vars(&self) -> VarSet { var_set() }
+}*/
 
 // Requires working trait aliases.
 // See rust-lang issue #41517 and RFC #1733 for details.
-/*pub trait ArrayOp<A> = OutputOp<Data=ArrayData<A>>;*/
-
-pub trait ArrayOp<A>: AutodiffOp {
-  fn _own_data(&self) -> &ArrayData<A>;
-  fn adjoint(&self) -> Rc<ArrayOp<A>> { unimplemented!(); }
-
-  fn from(op: Rc<Self>) -> Rc<ArrayOp<A>> where Self: 'static + Sized { op }
-  fn from_shared(op: Arc<Self>) -> Arc<ArrayOp<A>> where Self: 'static + Sized { op }
-  fn from_owned(op: Box<Self>) -> Box<ArrayOp<A>> where Self: 'static + Sized { op }
-
-  fn data(&self) -> ArrayData<A> {
-    self._own_data().clone()
-  }
-
-  fn vars(&self) -> VarSet {
-    self._own_data()._vars()
-  }
-}
+/*pub trait ArrayOp<A> = AVar<Data=ArrayData<A>>;*/
 
 pub struct NullIo;
 pub struct ZeroIo;
@@ -1324,34 +1307,13 @@ impl<A> TxnVar<A> {
   }
 }
 
-/*#[derive(Clone, PartialEq, Eq, Hash)]
-pub enum DerivativeKey {
-  Val,
-  Grad(usize),
-  DirectGrad{order: usize, index: usize},
+pub struct AConst<A> {
+  pub val:      A,
 }
 
-pub fn val_key() -> DerivativeKey {
-  DerivativeKey::Val
-}
+pub type ArrayData<A> = AData<A>;
 
-pub fn grad_key() -> DerivativeKey {
-  DerivativeKey::Grad(1)
-}
-
-pub fn grad2_key() -> DerivativeKey {
-  DerivativeKey::Grad(2)
-}
-
-pub fn r_val_key() -> DerivativeKey {
-  DerivativeKey::DirectGrad{order: 1, index: 0}
-}
-
-pub fn r_grad_key() -> DerivativeKey {
-  DerivativeKey::DirectGrad{order: 2, index: 0}
-}*/
-
-pub struct ArrayData<A> {
+pub struct AData<A> {
   symbol:       Symbol,
   clk_horizon:  usize,
   //alloc:        Rc<Fn(TxnId, NodeId) -> A>,
@@ -1363,10 +1325,10 @@ pub struct ArrayData<A> {
   pub grad2:    TxnVar<A>,
 }
 
-impl<A> Clone for ArrayData<A> {
+impl<A> Clone for AData<A> {
   fn clone(&self) -> Self {
     let new_symbol = Symbol::new();
-    ArrayData{
+    AData{
       symbol:       new_symbol,
       clk_horizon:  self.clk_horizon,
       val:          self.val.dup(new_symbol),
@@ -1379,7 +1341,7 @@ impl<A> Clone for ArrayData<A> {
   }
 }
 
-impl<A> OutputData for ArrayData<A> {
+impl<A> AVarOutput for AData<A> {
   fn _vars(&self) -> VarSet {
     VarSet::empty()
       .add(self.val.var())
@@ -1391,10 +1353,10 @@ impl<A> OutputData for ArrayData<A> {
   }
 }
 
-impl<A> ArrayData<A> {
+impl<A> AData<A> {
   pub fn new(clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let symbol = Symbol::new();
-    ArrayData{
+    AData{
       symbol:       symbol,
       clk_horizon:  clk_horizon,
       val:      TxnVar::new(symbol, Val,    clk_horizon, alloc.clone()),
