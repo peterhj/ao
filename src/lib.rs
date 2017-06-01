@@ -27,7 +27,7 @@ extern crate densearray;
 extern crate fnv;
 extern crate rng;
 
-#[macro_use] extern crate lazy_static;
+//#[macro_use] extern crate lazy_static;
 extern crate libc;
 extern crate rand;
 
@@ -57,12 +57,13 @@ pub mod prelude;
 
 thread_local!(pub static GLOBAL_CONFIG: GlobalConfig = GlobalConfig::default());
 
-thread_local!(static NODE_ID_COUNTER: Cell<u64> = Cell::new(0));
-thread_local!(static TXN_ID_COUNTER:  Cell<u64> = Cell::new(0));
-thread_local!(static EPOCH_COUNTER:   Cell<u64> = Cell::new(0));
-thread_local!(static CLK_DOM_COUNTER: Cell<u64> = Cell::new(0));
+thread_local!(static NODE_ID_COUNTER:   Cell<u64> = Cell::new(0));
+thread_local!(static TXN_ID_COUNTER:    Cell<u64> = Cell::new(0));
+thread_local!(static EPOCH_COUNTER:     Cell<u64> = Cell::new(0));
+thread_local!(static CLK_DOM_COUNTER:   Cell<u64> = Cell::new(0));
 
-thread_local!(static DEFAULT_CONS:    ConstructorConfig = ConstructorConfig::_default());
+thread_local!(static DEFAULT_OP_CFG:    OpConfig = OpConfig::_default());
+thread_local!(static OP_CFG_STACK:      RefCell<OpConfigStack> = RefCell::new(OpConfigStack::default()));
 
 pub struct GlobalConfig {
   pub deterministic:    bool,
@@ -260,35 +261,36 @@ impl Clock {
 }
 
 #[derive(Clone)]
-pub struct ConstructorConfig {
+pub struct OpConfig {
   pub clock:    Rc<Clock>,
 }
 
-impl ConstructorConfig {
+impl OpConfig {
   fn _default() -> Self {
-    ConstructorConfig{
+    OpConfig{
       clock:    Clock::new(1),
     }
   }
 }
 
-pub struct ConstructorStack {
-  stack:    Vec<ConstructorConfig>,
+#[derive(Default)]
+pub struct OpConfigStack {
+  stack:    Vec<OpConfig>,
 }
 
-impl ConstructorStack {
-  pub fn current(&self) -> ConstructorConfig {
+impl OpConfigStack {
+  pub fn current(&self) -> OpConfig {
     match self.stack.len() {
-      0 => DEFAULT_CONS.with(|cfg| cfg.clone()),
+      0 => DEFAULT_OP_CFG.with(|cfg| cfg.clone()),
       _ => self.stack[self.stack.len() - 1].clone()
     }
   }
 
-  pub fn push(&mut self, cfg: ConstructorConfig) {
+  pub fn push(&mut self, cfg: OpConfig) {
     self.stack.push(cfg);
   }
 
-  pub fn pop(&mut self) -> Option<ConstructorConfig> {
+  pub fn pop(&mut self) -> Option<OpConfig> {
     self.stack.pop()
   }
 }
@@ -446,8 +448,8 @@ pub trait AOp {
   fn _r_backward(&self, _txn: TxnId) { unimplemented!(); }
   fn _backward2(&self, _txn: TxnId) { unimplemented!(); }*/
 
-  fn _reset_clock(&self) {}
-  fn _set_clock(&self, _clk: usize) { unimplemented!(); }
+  /*fn _reset_clock(&self) {}
+  fn _set_clock(&self, _clk: usize) { unimplemented!(); }*/
 
   fn from(op: Rc<Self>) -> Rc<AOp> where Self: 'static + Sized { op }
   fn from_shared(op: Arc<Self>) -> Arc<AOp> where Self: 'static + Sized { op }
@@ -595,7 +597,7 @@ pub trait AOp {
     vars.unmask_all();
   }
 
-  fn reset_clock(&self) {
+  /*fn reset_clock(&self) {
     let epoch = Epoch::new(self._id());
     self._push(epoch, &mut |op| { op._reset_clock(); });
     self._pop(epoch, &mut |_op| {});
@@ -605,7 +607,7 @@ pub trait AOp {
     let epoch = Epoch::new(self._id());
     self._push(epoch, &mut |op| { op._set_clock(clk); });
     self._pop(epoch, &mut |_op| {});
-  }
+  }*/
 
   fn eval(&self, txn: TxnId) {
     let epoch = Epoch::new(self._id());
@@ -974,22 +976,24 @@ pub struct TxnVar<A> {
   symbol:   Symbol,
   var:      Var,
   alloc:    Rc<Fn(TxnId, NodeId) -> A>,
-  curr_clk: Rc<Cell<usize>>,
+  //curr_clk: Rc<Cell<usize>>,
+  clock:    Rc<Clock>,
   clk_bufs: Vec<Rc<TxnVarBuf<A>>>,
   //clk_bufs: Vec<Rc<TxnVarClkBuf<A>>>,
 }
 
 impl<A> TxnVar<A> {
-  pub fn new(symbol: Symbol, kind: VarKind, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
-    let mut clk_bufs = Vec::with_capacity(clk_horizon);
-    for _ in 0 .. clk_horizon {
+  pub fn new(symbol: Symbol, kind: VarKind, /*clk_horizon: usize,*/ clock: Rc<Clock>, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
+    let mut clk_bufs = Vec::with_capacity(clock.horizon());
+    for _ in 0 .. clock.horizon() {
       clk_bufs.push(Rc::new(TxnVarBuf::new()));
     }
     TxnVar{
       symbol:   symbol,
       var:      Var::new(kind),
       alloc:    alloc,
-      curr_clk: Rc::new(Cell::new(0)),
+      //curr_clk: Rc::new(Cell::new(0)),
+      clock:    clock,
       clk_bufs: clk_bufs,
     }
   }
@@ -1002,7 +1006,8 @@ impl<A> TxnVar<A> {
       symbol:   new_symbol,
       var:      self.var.clone(),
       alloc:    self.alloc.clone(),
-      curr_clk: self.curr_clk.clone(),
+      //curr_clk: self.curr_clk.clone(),
+      clock:    self.clock.clone(),
       clk_bufs: self.clk_bufs.clone(),
     }
   }
@@ -1011,17 +1016,17 @@ impl<A> TxnVar<A> {
     self.var.clone()
   }
 
-  pub fn reset_clock(&self) {
+  /*pub fn reset_clock(&self) {
     self.curr_clk.set(0);
   }
 
   pub fn set_clock(&self, clk: usize) {
     self.curr_clk.set(clk);
-  }
+  }*/
 
   /// Invalidate this variable.
   pub fn invalidate(&self) {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let buf = &self.clk_bufs[clk];
     buf.curr_txn.set(None);
     buf.rollover.set(false);
@@ -1035,7 +1040,7 @@ impl<A> TxnVar<A> {
   /// Rollover this variable to a new transaction if this variable is
   /// a member of the provided variable set.
   pub fn rollover(&self, txn: TxnId, vars: &mut VarSet) {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let buf = &self.clk_bufs[clk];
     if vars.contains(&self.var) {
       match buf.curr_txn.get() {
@@ -1074,7 +1079,7 @@ impl<A> TxnVar<A> {
   /// Query this variable's availability to be overwritten,
   /// i.e. exclusive write. See `.get_excl()` for details.
   pub fn overwrite(&self, txn: TxnId, node: NodeId) -> bool {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let buf = &self.clk_bufs[clk];
     let mut incomplete_write = false;
     let mut new_txn = false;
@@ -1118,7 +1123,7 @@ impl<A> TxnVar<A> {
   /// Query this variable's availability for accumulation,
   /// i.e. read-write. See `.get_mut()` for details.
   pub fn accumulate<F>(&self, txn: TxnId, node: NodeId, init: F) -> bool where F: Fn(&mut A) {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let buf = &self.clk_bufs[clk];
     let mut incomplete_write = false;
     let mut new_txn = false;
@@ -1165,12 +1170,12 @@ impl<A> TxnVar<A> {
   }
 
   pub fn get(&self, txn: TxnId, node: NodeId) -> Ref<A> {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     self.get_clk(clk, txn, node)
   }
 
   pub fn get_prev(&self, txn: TxnId, node: NodeId) -> Option<Ref<A>> {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     match clk {
       0   => None,
       clk => Some(self.get_clk(clk - 1, txn, node)),
@@ -1225,7 +1230,7 @@ impl<A> TxnVar<A> {
   ///   operand symbol; attempting to exclusively write to the same
   ///   variable using two different symbols is illegal.
   pub fn get_excl(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let buf = &self.clk_bufs[clk];
     let mut new_txn = false;
     if buf.curr_txn.get().is_none() {
@@ -1265,7 +1270,7 @@ impl<A> TxnVar<A> {
   /// - A read-write on a variable is mutually exclusive with
   ///   reads and exclusive writes.
   pub fn get_mut(&self, txn: TxnId, node: NodeId) -> RefMut<A> {
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let buf = &self.clk_bufs[clk];
     let mut new_txn = false;
     if buf.curr_txn.get().is_none() {
@@ -1315,14 +1320,15 @@ pub type ArrayData<A> = AData<A>;
 
 pub struct AData<A> {
   symbol:       Symbol,
-  clk_horizon:  usize,
+  //clk_horizon:  usize,
+  clock:        Rc<Clock>,
   //alloc:        Rc<Fn(TxnId, NodeId) -> A>,
   pub val:      TxnVar<A>,
   pub grad:     TxnVar<A>,
-  pub r_val:    TxnVar<A>,
+  /*pub r_val:    TxnVar<A>,
   pub r_grad:   TxnVar<A>,
   pub val2:     TxnVar<A>,
-  pub grad2:    TxnVar<A>,
+  pub grad2:    TxnVar<A>,*/
 }
 
 impl<A> Clone for AData<A> {
@@ -1330,13 +1336,14 @@ impl<A> Clone for AData<A> {
     let new_symbol = Symbol::new();
     AData{
       symbol:       new_symbol,
-      clk_horizon:  self.clk_horizon,
+      //clk_horizon:  self.clk_horizon,
+      clock:        self.clock.clone(),
       val:          self.val.dup(new_symbol),
       grad:         self.grad.dup(new_symbol),
-      r_val:        self.r_val.dup(new_symbol),
+      /*r_val:        self.r_val.dup(new_symbol),
       r_grad:       self.r_grad.dup(new_symbol),
       val2:         self.grad2.dup(new_symbol),
-      grad2:        self.grad2.dup(new_symbol),
+      grad2:        self.grad2.dup(new_symbol),*/
     }
   }
 }
@@ -1354,17 +1361,19 @@ impl<A> AVarOutput for AData<A> {
 }
 
 impl<A> AData<A> {
-  pub fn new(clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
+  pub fn new(/*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let symbol = Symbol::new();
+    let clock = OP_CFG_STACK.with(|stack| stack.borrow().current().clock);
     AData{
       symbol:       symbol,
-      clk_horizon:  clk_horizon,
-      val:      TxnVar::new(symbol, Val,    clk_horizon, alloc.clone()),
-      grad:     TxnVar::new(symbol, Grad,   clk_horizon, alloc.clone()),
-      r_val:    TxnVar::new(symbol, RVal,   clk_horizon, alloc.clone()),
+      //clk_horizon:  clk_horizon,
+      clock:    clock.clone(),
+      val:      TxnVar::new(symbol, Val,    clock.clone(), alloc.clone()),
+      grad:     TxnVar::new(symbol, Grad,   clock.clone(), alloc.clone()),
+      /*r_val:    TxnVar::new(symbol, RVal,   clk_horizon, alloc.clone()),
       r_grad:   TxnVar::new(symbol, RGrad,  clk_horizon, alloc.clone()),
       val2:     TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),
-      grad2:    TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),
+      grad2:    TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),*/
     }
   }
 
@@ -1378,10 +1387,11 @@ impl<A> AData<A> {
   }
 
   pub fn horizon(&self) -> usize {
-    self.clk_horizon
+    //self.clk_horizon
+    self.clock.horizon()
   }
 
-  pub fn reset_clock_all(&self) {
+  /*pub fn reset_clock_all(&self) {
     self.val.reset_clock();
     self.grad.reset_clock();
     /*self.r_val.reset_clock();
@@ -1397,7 +1407,7 @@ impl<A> AData<A> {
     self.r_grad.set_clock(clk);
     self.val2.set_clock(clk);
     self.grad2.set_clock(clk);*/
-  }
+  }*/
 }
 
 pub fn master_rng() -> (ChaChaRng, Vec<u32>) {

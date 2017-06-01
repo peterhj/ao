@@ -120,12 +120,12 @@ impl IoBuf for Array4d<f32> {
 }
 
 pub fn src<A, F>(cons: F) -> Rc<SrcOp<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
-  SrcOp::new(1, false, Rc::new(cons))
+  SrcOp::new(Rc::new(cons))
 }
 
-pub fn sequential_src<A, F>(horizon: usize, cons: F) -> Rc<SrcOp<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
+/*pub fn sequential_src<A, F>(horizon: usize, cons: F) -> Rc<SrcOp<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
   SrcOp::new(horizon, true, Rc::new(cons))
-}
+}*/
 
 /*pub fn test_var() {
   let x: Rc<SrcOp<Array1d<f32>>> = var(|_, _| Array1d::zeros(10));
@@ -140,30 +140,30 @@ pub struct CopyConstant<A> where A: Copy {
 pub struct SrcOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  horizon:  usize,
-  clock:    bool,
+  /*horizon:  usize,
+  clock:    bool,*/
   alloc:    Rc<Fn(TxnId, NodeId) -> A>,
-  data:     ArrayData<A>,
+  data:     AData<A>,
   adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 impl<A> SrcOp<A> {
-  pub fn new(horizon: usize, clock: bool, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> {
+  pub fn new(/*horizon: usize, clock: bool,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> {
     let node = NodeId::new();
     Rc::new(SrcOp{
       node_id:  node,
       stack:    OperatorStack::new(node, 0),
-      horizon:  horizon,
-      clock:    clock,
+      /*horizon:  horizon,
+      clock:    clock,*/
       alloc:    alloc.clone(),
-      data:     ArrayData::new(horizon, alloc),
+      data:     AData::new(/*horizon,*/ alloc),
       adj:      RefCell::new(None),
     })
   }
 }
 
 /*impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 
@@ -174,12 +174,12 @@ impl<A> SrcOp<A> {
 }*/
 
 impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 
   default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_src_ = SrcOp::new(self.horizon, self.clock, self.alloc.clone());
+    let adj_src_ = SrcOp::new(/*self.horizon, self.clock,*/ self.alloc.clone());
     adj_src_
   }
 
@@ -269,7 +269,7 @@ impl AOp for SrcOp<f32> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -279,7 +279,7 @@ impl AOp for SrcOp<f32> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 impl AOp for SrcOp<Batch<u32>> {
@@ -359,7 +359,7 @@ impl AOp for SrcOp<Batch<u32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -369,7 +369,7 @@ impl AOp for SrcOp<Batch<u32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 impl AOp for SrcOp<Array1d<f32>> {
@@ -427,7 +427,7 @@ impl AOp for SrcOp<Array1d<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -437,14 +437,8 @@ impl AOp for SrcOp<Array1d<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
-
-/*impl AVar<AData<Array2d<f32>>> for SrcOp<Array2d<f32>> {
-  fn data(&self) -> ArrayData<Array2d<f32>> {
-    self.data.clone()
-  }
-}*/
 
 impl AOp for SrcOp<Array2d<f32>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
@@ -501,7 +495,7 @@ impl AOp for SrcOp<Array2d<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -511,11 +505,11 @@ impl AOp for SrcOp<Array2d<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 /*impl AVar<AData<Array4d<f32>>> for SrcOp<Array4d<f32>> {
-  fn data(&self) -> ArrayData<Array4d<f32>> {
+  fn data(&self) -> AData<Array4d<f32>> {
     self.data.clone()
   }
 }*/
@@ -575,7 +569,7 @@ impl AOp for SrcOp<Array4d<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -585,7 +579,7 @@ impl AOp for SrcOp<Array4d<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 pub fn pass<A, Op>(x_: Rc<Op>) -> Rc<PassOp<A>> where Op: 'static + AVar<AData<A>> {
@@ -597,11 +591,11 @@ pub struct PassOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       RefCell<Option<Rc<AOp>>>,
-  data:     ArrayData<A>,
+  data:     AData<A>,
 }
 
 impl<A> PassOp<A> {
-  pub fn new(x_: Option<Rc<AOp>>, data: ArrayData<A>) -> Rc<Self> {
+  pub fn new(x_: Option<Rc<AOp>>, data: AData<A>) -> Rc<Self> {
     let node = NodeId::new();
     Rc::new(PassOp{
       node_id:  node,
@@ -613,7 +607,7 @@ impl<A> PassOp<A> {
 }
 
 impl<A> AVar<AData<A>> for PassOp<A> {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }
@@ -659,11 +653,11 @@ pub struct NoPassOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       RefCell<Option<Rc<AOp>>>,
-  data:     ArrayData<A>,
+  data:     AData<A>,
 }
 
 impl<A> NoPassOp<A> {
-  pub fn new(x_: Option<Rc<AOp>>, data: ArrayData<A>) -> Rc<Self>{
+  pub fn new(x_: Option<Rc<AOp>>, data: AData<A>) -> Rc<Self>{
     let node = NodeId::new();
     Rc::new(NoPassOp{
       node_id:  node,
@@ -675,7 +669,7 @@ impl<A> NoPassOp<A> {
 }
 
 impl<A> AVar<AData<A>> for NoPassOp<A> {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }
@@ -715,11 +709,11 @@ pub struct IoOp<A> {
   stack:    OperatorStack,
   //x_:       Rc<AVar<AData<A>>>,
   x_:       RefCell<Option<Rc<AOp>>>,
-  data:     ArrayData<A>,
+  data:     AData<A>,
 }
 
 impl<A> IoOp<A> {
-  pub fn new(x_: Option<Rc<AOp>>, data: ArrayData<A>) -> Rc<Self>{
+  pub fn new(x_: Option<Rc<AOp>>, data: AData<A>) -> Rc<Self>{
     let node = NodeId::new();
     Rc::new(IoOp{
       node_id:  node,
@@ -731,7 +725,7 @@ impl<A> IoOp<A> {
 }
 
 impl<A> AVar<AData<A>> for IoOp<A> {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }
@@ -784,13 +778,13 @@ pub struct InitializeOp<A, Init> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
-  data:     ArrayData<A>,
+  data:     AData<A>,
   kernel:   Init,
 }
 
-pub fn init_val<R, A, F>(f: F) -> impl Fn(TxnId, NodeId, Rc<RefCell<R>>, ArrayData<A>) where R: Rng, F: Fn(Rc<RefCell<R>>, &mut A) {
+pub fn init_val<R, A, F>(f: F) -> impl Fn(TxnId, NodeId, Rc<RefCell<R>>, AData<A>) where R: Rng, F: Fn(Rc<RefCell<R>>, &mut A) {
   let init_f = Rc::new(f);
-  move |txn: TxnId, node: NodeId, rng: Rc<RefCell<R>>, data: ArrayData<A>| {
+  move |txn: TxnId, node: NodeId, rng: Rc<RefCell<R>>, data: AData<A>| {
     if data.val.overwrite(txn, node) {
       (init_f)(rng, &mut *data.val.get_excl(txn, node));
     }
@@ -869,12 +863,12 @@ pub trait InitializeExt<A, F, Init> {
   }
 }*/
 
-//impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + AVar<AData<A>>, F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>) {
-impl<Op, A, F> InitializeExt<A, F, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>)>> for Rc<Op> where Op: 'static + AVar<AData<A>>, F: 'static + Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>) {
-  fn initialize(&self, f: F) -> Rc<InitializeOp<A, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>)>>> {
+//impl<Op, A, F> InitializeExt<A, F, Rc<F>> for Rc<Op> where Op: 'static + AVar<AData<A>>, F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<A>) {
+impl<Op, A, F> InitializeExt<A, F, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<A>)>> for Rc<Op> where Op: 'static + AVar<AData<A>>, F: 'static + Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<A>) {
+  fn initialize(&self, f: F) -> Rc<InitializeOp<A, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<A>)>>> {
     let node = NodeId::new();
     let stack = OperatorStack::new(node, 1);
-    let init: Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<A>)> = Rc::new(f);
+    let init: Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<A>)> = Rc::new(f);
     Rc::new(InitializeOp{
       node_id:  node,
       stack:    stack,
@@ -886,19 +880,19 @@ impl<Op, A, F> InitializeExt<A, F, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, 
 }
 
 impl<A, Init> AVar<AData<A>> for InitializeOp<A, Init> where InitializeOp<A, Init>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }
 
-/*impl AVar<AData<f32>> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
-  fn _owned_data(&self) -> &ArrayData<A> {
+/*impl AVar<AData<f32>> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<f32>)>> {
+  fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }*/
 
-//impl<F> AOp for InitializeOp<f32, Rc<F>> where F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>) {
-impl AOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<f32>)>> {
+//impl<F> AOp for InitializeOp<f32, Rc<F>> where F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<f32>) {
+impl AOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<f32>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -938,8 +932,8 @@ impl AOp for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, Arra
 }
 
 //impl<S, F> AOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut<Target=[f32]>, F: Fn(Rc<RefCell<ChaChaRng>>, &mut Array1d<f32, S>) {
-//impl<S, F> AOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut<Target=[f32]>, F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<Array1d<f32, S>>) {
-impl<S> AOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<Array1d<f32, S>>)>> where S: DerefMut<Target=[f32]> {
+//impl<S, F> AOp for InitializeOp<Array1d<f32, S>, Rc<F>> where S: DerefMut<Target=[f32]>, F: Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<Array1d<f32, S>>) {
+impl<S> AOp for InitializeOp<Array1d<f32, S>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<Array1d<f32, S>>)>> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -988,10 +982,10 @@ pub struct BranchOp<Cond, Off, On, Data> {
   output:   Data,
 }
 
-impl<Cond, A> BranchOp<Cond, Rc<AVar<AData<A>>>, Rc<AVar<AData<A>>>, ArrayData<A>> {
-  //pub fn new<On, Off, F>(cond: Cond, on_: Rc<On>, off_: Rc<Off>, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where On: 'static + AVar<AData<A>>, Off: 'static + AVar<AData<A>>, F: 'static + Fn(TxnId, NodeId) -> A {
-  pub fn new<Off, On>(cond: Cond, off_: Rc<Off>, on_: Rc<On>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> where On: 'static + AVar<AData<A>>, Off: 'static + AVar<AData<A>> {
-  //pub fn new(cond: Cond, on_: Rc<AVar<AData<A>>>, off_: Rc<AVar<AData<A>>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> {
+impl<Cond, A> BranchOp<Cond, Rc<AVar<AData<A>>>, Rc<AVar<AData<A>>>, AData<A>> {
+  //pub fn new<On, Off, F>(cond: Cond, on_: Rc<On>, off_: Rc<Off>, /*clk_horizon: usize,*/ alloc: Rc<F>) -> Rc<Self> where On: 'static + AVar<AData<A>>, Off: 'static + AVar<AData<A>>, F: 'static + Fn(TxnId, NodeId) -> A {
+  pub fn new<Off, On>(cond: Cond, off_: Rc<Off>, on_: Rc<On>, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> where On: 'static + AVar<AData<A>>, Off: 'static + AVar<AData<A>> {
+  //pub fn new(cond: Cond, on_: Rc<AVar<AData<A>>>, off_: Rc<AVar<AData<A>>>, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<Self> {
     let node = NodeId::new();
     let off = off_.data();
     let on = on_.data();
@@ -1005,7 +999,7 @@ impl<Cond, A> BranchOp<Cond, Rc<AVar<AData<A>>>, Rc<AVar<AData<A>>>, ArrayData<A
       on_:      AVar::from(on_),
       off:      off,
       on:       on,
-      output:   ArrayData::new(clk_horizon, alloc),
+      output:   AData::new(/*clk_horizon,*/ alloc),
     })
   }
 }
@@ -1016,8 +1010,8 @@ impl<Cond, On, Off, Data> AVar<Data> for BranchOp<Cond, On, Off, Data> where Bra
   }
 }
 
-impl<Cond, On, Off, A> AVar<AData<A>> for BranchOp<Cond, On, Off, ArrayData<A>> where BranchOp<Cond, On, Off, ArrayData<A>>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+impl<Cond, On, Off, A> AVar<AData<A>> for BranchOp<Cond, On, Off, AData<A>> where BranchOp<Cond, On, Off, AData<A>>: AOp {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.output
   }
 }
@@ -1046,8 +1040,8 @@ pub trait SpecialMapExt</*T,*/ A> {
 
 impl<Op, S> SpecialMapExt</*f32,*/ Array1d<f32, S>> for Rc<Op> where Op: 'static + AVar<AData<Array1d<f32, S>>>, S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
   fn rect(&self) -> Rc<MapOp<Array1d<f32, S>, RectMapKernel>> {
-    let clk_horizon = self.data().horizon();
-    MapOp::new(RectMapKernel, self.clone(), clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
       let x = self.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1062,13 +1056,13 @@ pub struct MapOp<A, MapF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
-  y:    ArrayData<A>,
+  x:    AData<A>,
+  y:    AData<A>,
   kernel:   MapF,
 }
 
 impl<A, MapF> MapOp<A, MapF> {
-  pub fn new<F>(kernel: MapF, x_: Rc<AVar<AData<A>>>, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> A {
+  pub fn new<F>(kernel: MapF, x_: Rc<AVar<AData<A>>>, /*clk_horizon: usize,*/ alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> A {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(MapOp{
@@ -1076,14 +1070,14 @@ impl<A, MapF> MapOp<A, MapF> {
       stack:    OperatorStack::new(node, 1),
       x_:   x_,
       x:    x,
-      y:    ArrayData::new(clk_horizon, alloc),
+      y:    AData::new(/*clk_horizon,*/ alloc),
       kernel:   kernel,
     })
   }
 }
 
 impl<A, MapF> AVar<AData<A>> for MapOp<A, MapF> where MapOp<A, MapF>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.y
   }
 }
@@ -1240,8 +1234,8 @@ pub struct TransformOp<A, B, Transform> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
-  y:    ArrayData<B>,
+  x:    AData<A>,
+  y:    AData<B>,
   kernel:   Transform,
 }
 
@@ -1277,7 +1271,7 @@ pub trait ZeroPadExt<A, B> {
 }
 
 impl<A, B, Transform> TransformOp<A, B, Transform> {
-  pub fn new<F>(x_: Rc<AVar<AData<A>>>, transform: Transform, clk_horizon: usize, alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> B {
+  pub fn new<F>(x_: Rc<AVar<AData<A>>>, transform: Transform, /*clk_horizon: usize,*/ alloc: Rc<F>) -> Rc<Self> where F: 'static + Fn(TxnId, NodeId) -> B {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(TransformOp{
@@ -1285,22 +1279,22 @@ impl<A, B, Transform> TransformOp<A, B, Transform> {
       stack:    OperatorStack::new(node, 1),
       x_:   x_,
       x:    x,
-      y:    ArrayData::new(clk_horizon, alloc),
+      y:    AData::new(/*clk_horizon,*/ alloc),
       kernel:   transform,
     })
   }
 }
 
 impl<A, B, Transform> AVar<AData<B>> for TransformOp<A, B, Transform> where TransformOp<A, B, Transform>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<B> {
+  default fn _owned_data(&self) -> &AData<B> {
     &self.y
   }
 }
 
 impl<S> FlattenExt<Array3d<f32, S>, Array1d<f32, S>> for Rc<AVar<AData<Array3d<f32, S>>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
   fn flatten(&self) -> Rc<TransformOp<Array3d<f32, S>, Array1d<f32, S>, FlattenTransform>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), FlattenTransform, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), FlattenTransform, /*clk_horizon,*/ {
       let x = self.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1367,13 +1361,13 @@ pub struct JoinOp<A, JoinF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   xs_:  Vec<Rc<AVar<AData<A>>>>,
-  xs:   Vec<ArrayData<A>>,
-  y:    ArrayData<A>,
+  xs:   Vec<AData<A>>,
+  y:    AData<A>,
   kernel:   JoinF,
 }
 
 impl<A, JoinF> JoinOp<A, JoinF> {
-  pub fn new<F>(xs_: Vec<Rc<AVar<AData<A>>>>, kernel: JoinF, clk_horizon: usize, alloc: Rc<F>) -> Rc<JoinOp<A, JoinF>> where F: 'static + Fn(TxnId, NodeId) -> A {
+  pub fn new<F>(xs_: Vec<Rc<AVar<AData<A>>>>, kernel: JoinF, /*clk_horizon: usize,*/ alloc: Rc<F>) -> Rc<JoinOp<A, JoinF>> where F: 'static + Fn(TxnId, NodeId) -> A {
     let node = NodeId::new();
     let in_degree = xs_.len();
     let mut xs = Vec::with_capacity(in_degree);
@@ -1388,14 +1382,14 @@ impl<A, JoinF> JoinOp<A, JoinF> {
       stack:    OperatorStack::new(node, in_degree),
       xs_:      xs_,
       xs:       xs,
-      y:        ArrayData::new(clk_horizon, alloc),
+      y:        AData::new(/*clk_horizon,*/ alloc),
       kernel:   kernel,
     })
   }
 }
 
 impl<A, JoinF> AVar<AData<A>> for JoinOp<A, JoinF> where JoinOp<A, JoinF>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.y
   }
 }
@@ -1526,7 +1520,7 @@ pub struct SplitOp<A, SplitF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x:    Rc<AVar<AData<A>>>,
-  y:    ArrayData<A>,
+  y:    AData<A>,
   kernel:   SplitF,
 }
 
@@ -1558,14 +1552,14 @@ pub struct ClipOp<A, Clip, Kernel> {
   stack:    OperatorStack,
   c_:   Rc<AVar<AData<Clip>>>,
   x_:   Rc<AVar<AData<A>>>,
-  c:    ArrayData<Clip>,
-  x:    ArrayData<A>,
-  y:    ArrayData<A>,
+  c:    AData<Clip>,
+  x:    AData<A>,
+  y:    AData<A>,
   kernel:   Kernel,
 }
 
 impl<A, Clip, Kernel> ClipOp<A, Clip, Kernel> {
-  pub fn new(x_: Rc<AVar<AData<A>>>, c_: Rc<AVar<AData<Clip>>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<ClipOp<A, Clip, Kernel>> {
+  pub fn new(x_: Rc<AVar<AData<A>>>, c_: Rc<AVar<AData<Clip>>>, kernel: Kernel, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Rc<ClipOp<A, Clip, Kernel>> {
     let node = NodeId::new();
     let x = x_.data();
     let c = c_.data();
@@ -1576,14 +1570,14 @@ impl<A, Clip, Kernel> ClipOp<A, Clip, Kernel> {
       x_:       x_,
       c:        c,
       x:        x,
-      y:        ArrayData::new(clk_horizon, alloc),
+      y:        AData::new(/*clk_horizon,*/ alloc),
       kernel:   kernel,
     })
   }
 }
 
 impl<A, Clip, Kernel> AVar<AData<A>> for ClipOp<A, Clip, Kernel> where ClipOp<A, Clip, Kernel>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<A> {
+  default fn _owned_data(&self) -> &AData<A> {
     &self.y
   }
 }
@@ -1599,16 +1593,16 @@ pub struct LinearOp<A, B, V, W> {
   a_:   Rc<AVar<AData<A>>>,
   b_:   Option<Rc<AVar<AData<B>>>>,
   x_:   Rc<AVar<AData<V>>>,
-  a:    ArrayData<A>,
-  b:    Option<ArrayData<B>>,
-  x:    ArrayData<V>,
-  y:    ArrayData<W>,
-  tmp:  ArrayData<W>,
+  a:    AData<A>,
+  b:    Option<AData<B>>,
+  x:    AData<V>,
+  y:    AData<W>,
+  tmp:  AData<W>,
   adj:  RefCell<Option<Rc<AVar<AData<W>>>>>,
 }
 
 impl<A, B, V, W> LinearOp<A, B, V, W> {
-  pub fn new<F>(a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, b_: Option<Rc<AVar<AData<B>>>>, clk_horizon: usize, alloc: Rc<F>) -> Rc<LinearOp<A, B, V, W>> where F: 'static + Fn(TxnId, NodeId) -> W {
+  pub fn new<F>(a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, b_: Option<Rc<AVar<AData<B>>>>, /*clk_horizon: usize,*/ alloc: Rc<F>) -> Rc<LinearOp<A, B, V, W>> where F: 'static + Fn(TxnId, NodeId) -> W {
     let node = NodeId::new();
     let in_degree = match b_ {
       None    => 2,
@@ -1626,15 +1620,15 @@ impl<A, B, V, W> LinearOp<A, B, V, W> {
       a:    a,
       b:    b,
       x:    x,
-      y:    ArrayData::new(clk_horizon, alloc.clone()),
-      tmp:  ArrayData::new(1, alloc),
+      y:    AData::new(/*clk_horizon,*/ alloc.clone()),
+      tmp:  AData::new(/*1,*/ alloc),
       adj:  RefCell::new(None),
     })
   }
 }
 
 impl<A, B, V, W> AVar<AData<W>> for LinearOp<A, B, V, W> where LinearOp<A, B, V, W>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<W> {
+  default fn _owned_data(&self) -> &AData<W> {
     &self.y
   }
 
@@ -1660,13 +1654,13 @@ impl<A, B, V, W> AVar<AData<W>> for LinearOp<A, B, V, W> where LinearOp<A, B, V,
 
 impl<Op, S> MultExt<Array1d<f32, S>, f32, Array1d<f32, S>, f32> for Rc<Op> where Op: 'static + AVar<AData<Array1d<f32, S>>>, S: DerefMut<Target=[f32]> {
   fn mult(&self, x_: Rc<AVar<AData<Array1d<f32, S>>>>) -> Rc<LinearOp<Array1d<f32, S>, f32, Array1d<f32, S>, f32>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_, None, clk_horizon, Rc::new(|_, _| 0.0_f32))
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_, None, /*clk_horizon,*/ Rc::new(|_, _| 0.0_f32))
   }
 
   fn mult_add(&self, x_: Rc<AVar<AData<Array1d<f32, S>>>>, b_: Rc<AVar<AData<f32>>>) -> Rc<LinearOp<Array1d<f32, S>, f32, Array1d<f32, S>, f32>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_, Some(b_), clk_horizon, Rc::new(|_, _| 0.0_f32))
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_, Some(b_), /*clk_horizon,*/ Rc::new(|_, _| 0.0_f32))
   }
 }
 
@@ -1743,8 +1737,8 @@ impl<S> AOp for LinearOp<Array1d<f32, S>, f32, Array1d<f32, S>, f32> where S: De
 
 impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> for Rc<AVar<AData<Array2d<f32, S>>>> where S: 'static + DerefMut<Target=[f32]> + ArrayStorage<usize> {
   fn mult(&self, x_: Rc<AVar<AData<Array1d<f32, S>>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), None, /*clk_horizon,*/ {
       let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1755,8 +1749,8 @@ impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, 
   }
 
   fn mult_add(&self, x_: Rc<AVar<AData<Array1d<f32, S>>>>, b_: Rc<AVar<AData<Array1d<f32, S>>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), Some(b_), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), Some(b_), /*clk_horizon,*/ {
       let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1768,7 +1762,7 @@ impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, 
 }
 
 /*impl<S> AVar<AData<Array1d<f32, S>>> for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn _owned_data(&self) -> &ArrayData<A> {
+  fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }*/
@@ -1909,8 +1903,8 @@ impl<S> AOp for LinearOp<Array2d<f32, S>, Array1d<f32, S>, Array1d<f32, S>, Arra
 
 impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>> for Rc<AVar<AData<Array2d<f32, S>>>> where S: 'static + DerefMut<Target=[f32]> + BatchArrayStorage<usize> {
   fn mult(&self, x_: Rc<AVar<AData<BatchArray1d<f32, S>>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), None, /*clk_horizon,*/ {
       let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1922,8 +1916,8 @@ impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArr
   }
 
   fn mult_add(&self, x_: Rc<AVar<AData<BatchArray1d<f32, S>>>>, b_: Rc<AVar<AData<Array1d<f32, S>>>>) -> Rc<LinearOp<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), Some(b_), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), Some(b_), /*clk_horizon,*/ {
       let x = x_.clone().data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1936,7 +1930,7 @@ impl<S> MultExt<Array2d<f32, S>, Array1d<f32, S>, BatchArray1d<f32, S>, BatchArr
 }
 
 /*impl<S> AVar<AData<BatchArray1d<f32, S>>> for LinearOp<Array2d<f32, S>, BatchArray1d<f32, S>, BatchArray1d<f32, S>, Array1d<f32, S>> where S: DerefMut<Target=[f32]> {
-  fn _owned_data(&self) -> &ArrayData<A> {
+  fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
 }*/
@@ -2049,15 +2043,15 @@ pub struct BroadcastAddOp<A, V> {
   stack:    OperatorStack,
   a_:   Rc<AVar<AData<A>>>,
   x_:   Rc<AVar<AData<V>>>,
-  a:    ArrayData<A>,
-  x:    ArrayData<V>,
-  y:    ArrayData<V>,
+  a:    AData<A>,
+  x:    AData<V>,
+  y:    AData<V>,
   //kernel:   K,
   axes: Vec<usize>,
 }
 
 impl<A, V> BroadcastAddOp<A, V> {
-  pub fn new(axes: Vec<usize>, a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(axes: Vec<usize>, a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let a = a_.data();
     let x = x_.data();
@@ -2068,7 +2062,7 @@ impl<A, V> BroadcastAddOp<A, V> {
       x_:   x_,
       a:    a,
       x:    x,
-      y:    ArrayData::new(clk_horizon, alloc.clone()),
+      y:    AData::new(/*clk_horizon,*/ alloc.clone()),
       axes: axes,
     })
   }
@@ -2079,7 +2073,7 @@ pub trait BroadcastAddExt<A, V> {
 }
 
 impl<A, V> AVar<AData<V>> for BroadcastAddOp<A, V> where BroadcastAddOp<A, V>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<V> {
+  default fn _owned_data(&self) -> &AData<V> {
     &self.y
   }
 }
@@ -2090,16 +2084,16 @@ pub struct ElemLinearOp<A, V, K> {
   a_:   Rc<AVar<AData<A>>>,
   x_:   Rc<AVar<AData<V>>>,
   b_:   Option<Rc<AVar<AData<A>>>>,
-  a:    ArrayData<A>,
-  x:    ArrayData<V>,
-  b:    Option<ArrayData<A>>,
-  y:    ArrayData<V>,
-  //tmp:  ArrayData<V>,
+  a:    AData<A>,
+  x:    AData<V>,
+  b:    Option<AData<A>>,
+  y:    AData<V>,
+  //tmp:  AData<V>,
   kernel:   K,
 }
 
 impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
-  pub fn new(a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, b_: Option<Rc<AVar<AData<A>>>>, kernel: Kernel, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, b_: Option<Rc<AVar<AData<A>>>>, kernel: Kernel, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let in_degree = match b_ {
       None    => 2,
@@ -2117,8 +2111,8 @@ impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
       a:    a,
       x:    x,
       b:    b,
-      y:    ArrayData::new(clk_horizon, alloc.clone()),
-      //tmp:  ArrayData::new(clk_horizon, alloc.clone()),
+      y:    AData::new(/*clk_horizon,*/ alloc.clone()),
+      //tmp:  AData::new(/*clk_horizon,*/ alloc.clone()),
       kernel:   kernel,
     })
   }
@@ -2137,7 +2131,7 @@ pub trait ElemMultExt<A, V> {
 }*/
 
 impl<A, V, Kernel> AVar<AData<V>> for ElemLinearOp<A, V, Kernel> where ElemLinearOp<A, V, Kernel>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<V> {
+  default fn _owned_data(&self) -> &AData<V> {
     &self.y
   }
 }
@@ -2246,14 +2240,14 @@ pub struct ElemNormalizeOp<Idx, A, V> where Idx: ArrayIndex {
   x_:       Rc<AVar<AData<V>>>,
   mean_:    Rc<AVar<AData<A>>>,
   var_:     Rc<AVar<AData<A>>>,
-  x:        ArrayData<V>,
-  mean:     ArrayData<A>,
-  var:      ArrayData<A>,
-  y:        ArrayData<V>,
+  x:        AData<V>,
+  mean:     AData<A>,
+  var:      AData<A>,
+  y:        AData<V>,
 }
 
 impl<Idx, A, V> ElemNormalizeOp<Idx, A, V> where Idx: ArrayIndex {
-  pub fn new(axes: Idx::Axes, epsilon: f64, x_: Rc<AVar<AData<V>>>, mean_: Rc<AVar<AData<A>>>, var_: Rc<AVar<AData<A>>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(axes: Idx::Axes, epsilon: f64, x_: Rc<AVar<AData<V>>>, mean_: Rc<AVar<AData<A>>>, var_: Rc<AVar<AData<A>>>, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     let mean = mean_.data();
@@ -2269,7 +2263,7 @@ impl<Idx, A, V> ElemNormalizeOp<Idx, A, V> where Idx: ArrayIndex {
       x:        x,
       mean:     mean,
       var:      var,
-      y:        ArrayData::new(clk_horizon, alloc.clone()),
+      y:        AData::new(/*clk_horizon,*/ alloc.clone()),
     })
   }
 }
@@ -2279,7 +2273,7 @@ pub trait ElemNormalizeExt<Idx, A, V> where Idx: ArrayIndex {
 }
 
 impl<Idx, A, V> AVar<AData<V>> for ElemNormalizeOp<Idx, A, V> where ElemNormalizeOp<Idx, A, V>: AOp, Idx: ArrayIndex {
-  default fn _owned_data(&self) -> &ArrayData<V> {
+  default fn _owned_data(&self) -> &AData<V> {
     &self.y
   }
 }
@@ -2345,15 +2339,15 @@ pub struct ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex {
   a_:   Rc<AVar<AData<A>>>,
   x_:   Rc<AVar<AData<V>>>,
   b_:   Option<Rc<AVar<AData<B>>>>,
-  a:    ArrayData<A>,
-  x:    ArrayData<V>,
-  b:    Option<ArrayData<B>>,
-  y:    ArrayData<V>,
+  a:    AData<A>,
+  x:    AData<V>,
+  b:    Option<AData<B>>,
+  y:    AData<V>,
   backend:  Backend,
 }
 
 impl<Idx, A, B, V, Backend> ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex {
-  pub fn new(shape: ConvShape<Idx>, a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, b_: Option<Rc<AVar<AData<B>>>>, backend: Backend, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(shape: ConvShape<Idx>, a_: Rc<AVar<AData<A>>>, x_: Rc<AVar<AData<V>>>, b_: Option<Rc<AVar<AData<B>>>>, backend: Backend, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let in_degree = match b_ {
       None    => 2,
@@ -2372,8 +2366,8 @@ impl<Idx, A, B, V, Backend> ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex 
       a:    a,
       x:    x,
       b:    b,
-      y:    ArrayData::new(clk_horizon, alloc.clone()),
-      //tmp:  ArrayData::new(1, alloc),
+      y:    AData::new(/*clk_horizon,*/ alloc.clone()),
+      //tmp:  AData::new(1, alloc),
       backend:  backend,
     })
   }
@@ -2485,14 +2479,14 @@ pub struct PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
   stack:    OperatorStack,
   shape:    PoolShape<Idx>,
   x_:   Rc<AVar<AData<V>>>,
-  x:    ArrayData<V>,
-  y:    ArrayData<V>,
+  x:    AData<V>,
+  y:    AData<V>,
   kernel:   Kernel,
   backend:  Backend,
 }
 
 impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
-  pub fn new(shape: PoolShape<Idx>, x_: Rc<AVar<AData<V>>>, kernel: Kernel, backend: Backend, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
+  pub fn new(shape: PoolShape<Idx>, x_: Rc<AVar<AData<V>>>, kernel: Kernel, backend: Backend, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> V>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(PoolOp{
@@ -2501,8 +2495,8 @@ impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIn
       shape:    shape,
       x_:   x_,
       x:    x,
-      y:    ArrayData::new(clk_horizon, alloc.clone()),
-      //tmp:  ArrayData::new(1, alloc),
+      y:    AData::new(/*clk_horizon,*/ alloc.clone()),
+      //tmp:  AData::new(1, alloc),
       kernel:   kernel,
       backend:  backend,
     })
@@ -2510,7 +2504,7 @@ impl<Idx, V, Kernel, Backend> PoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIn
 }
 
 impl<Idx, V, Kernel, Backend> AVar<AData<V>> for PoolOp<Idx, V, Kernel, Backend> where PoolOp<Idx, V, Kernel, Backend>: AOp, Idx: ArrayIndex {
-  fn _owned_data(&self) -> &ArrayData<V> {
+  fn _owned_data(&self) -> &AData<V> {
     &self.y
   }
 }
@@ -2521,9 +2515,9 @@ pub struct GenPoolOp<Idx, V, Kernel, Backend> where Idx: ArrayIndex {
   shape:    PoolShape<Idx>,
   x_:   Rc<AVar<AData<V>>>,
   sel_: Rc<AVar<AData<V>>>,
-  x:    ArrayData<V>,
-  sel:  ArrayData<V>,
-  y:    ArrayData<V>,
+  x:    AData<V>,
+  sel:  AData<V>,
+  y:    AData<V>,
   kernel:   Kernel,
   backend:  Backend,
 }
@@ -2739,9 +2733,9 @@ pub struct BatchStatsOutput<M> {
   pub var_batch:    Rc<AVar<AData<M>>>,
   pub mean_fixed:   Rc<AVar<AData<M>>>,
   pub var_fixed:    Rc<AVar<AData<M>>>,
-  pub mean_branch:  Rc<BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<M>>>, Rc<AVar<AData<M>>>, ArrayData<M>>>,
+  pub mean_branch:  Rc<BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<M>>>, Rc<AVar<AData<M>>>, AData<M>>>,
   //pub mean_branch:  Rc<AVar<AData<M>>>,
-  pub var_branch:   Rc<BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<M>>>, Rc<AVar<AData<M>>>, ArrayData<M>>>,
+  pub var_branch:   Rc<BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<M>>>, Rc<AVar<AData<M>>>, AData<M>>>,
   //pub var_branch:   Rc<AVar<AData<M>>>,
   // TODO: expose accumulators as well for block reductions.
 }
@@ -2779,32 +2773,32 @@ pub struct BatchStatsOp<Idx, A, M> where Idx: ArrayIndex {
   var_acc_:     Rc<SrcOp<M>>,
   var_run_:     Rc<SrcOp<M>>,
   //var_branch_:  Rc<AVar<AData<M>>>,
-  x:            ArrayData<A>,
-  mean:         ArrayData<M>,
-  mean_acc:     ArrayData<M>,
-  mean_run:     ArrayData<M>,
-  var:          ArrayData<M>,
-  var_acc:      ArrayData<M>,
-  var_run:      ArrayData<M>,
+  x:            AData<A>,
+  mean:         AData<M>,
+  mean_acc:     AData<M>,
+  mean_run:     AData<M>,
+  var:          AData<M>,
+  var_acc:      AData<M>,
+  var_run:      AData<M>,
 }
 
 impl<Idx, A, M> BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, M>: AOp + BatchStatsOpExt, SrcOp<M>: AOp, Idx: 'static + ArrayIndex, A: 'static, M: 'static {
-  pub fn new<Op>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Rc<Op>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> M>) -> BatchStatsOutput<M> where Op: 'static + AVar<AData<A>> {
+  pub fn new<Op>(reduce_axes: Idx::Axes, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Rc<Op>, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> M>) -> BatchStatsOutput<M> where Op: 'static + AVar<AData<A>> {
     let node = NodeId::new();
     let x = x_.data();
-    let mean = ArrayData::new(clk_horizon, alloc.clone());
-    let var = ArrayData::new(clk_horizon, alloc.clone());
+    let mean = AData::new(/*clk_horizon,*/ alloc.clone());
+    let var = AData::new(/*clk_horizon,*/ alloc.clone());
     let mean_ = PassOp::new(None, mean.clone());
     let var_ = PassOp::new(None, var.clone());
     // FIXME: some hackiness around clocks.
-    let mean_acc_ = SrcOp::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
-    let var_acc_ = SrcOp::new(clk_horizon, clk_horizon > 1, alloc.clone()); //src(alloc.clone());
-    let mean_run_ = SrcOp::new(clk_horizon, clk_horizon > 1, alloc.clone());
+    let mean_acc_ = SrcOp::new(/*clk_horizon,*/ /*clk_horizon > 1,*/ alloc.clone()); //src(alloc.clone());
+    let var_acc_ = SrcOp::new(/*clk_horizon,*/ /*clk_horizon > 1,*/ alloc.clone()); //src(alloc.clone());
+    let mean_run_ = SrcOp::new(/*clk_horizon,*/ /*clk_horizon > 1,*/ alloc.clone());
       //.initialize(init_val(|_, x: &mut DeviceArray1d<f32>| x.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())));
-    let var_run_ = SrcOp::new(clk_horizon, clk_horizon > 1, alloc.clone());
+    let var_run_ = SrcOp::new(/*clk_horizon,*/ /*clk_horizon > 1,*/ alloc.clone());
       //.initialize(init_val(|_, x: &mut DeviceArray1d<f32>| x.as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())));
-    let mean_branch_ = BranchOp::new(ctrl.mode.clone(), mean_.clone(), mean_run_.clone(), clk_horizon, alloc.clone());
-    let var_branch_ = BranchOp::new(ctrl.mode.clone(), var_.clone(), var_run_.clone(), clk_horizon, alloc.clone());
+    let mean_branch_ = BranchOp::new(ctrl.mode.clone(), mean_.clone(), mean_run_.clone(), /*clk_horizon,*/ alloc.clone());
+    let var_branch_ = BranchOp::new(ctrl.mode.clone(), var_.clone(), var_run_.clone(), /*clk_horizon,*/ alloc.clone());
     ctrl.batch_ops.push(mean_.clone());
     ctrl.batch_ops.push(var_.clone());
     ctrl.batch_vars.insert_all(&mean_.vars());
@@ -2965,19 +2959,19 @@ pub struct IndexOp<A, Idx, Out> {
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
   index_:   Rc<AVar<AData<Idx>>>,
-  x:        ArrayData<A>,
-  index:    ArrayData<Idx>,
-  y:        ArrayData<Out>,
+  x:        AData<A>,
+  index:    AData<Idx>,
+  y:        AData<Out>,
 }
 
 impl<A, Idx, Out> AVar<AData<Out>> for IndexOp<A, Idx, Out> where IndexOp<A, Idx, Out>: AOp {
-  fn _owned_data(&self) -> &ArrayData<Out> {
+  fn _owned_data(&self) -> &AData<Out> {
     &self.y
   }
 }
 
 impl<A, Idx, Out> IndexOp<A, Idx, Out> {
-  pub fn new(x_: Rc<AVar<AData<A>>>, index_: Rc<AVar<AData<Idx>>>, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> Out>) -> Rc<IndexOp<A, Idx, Out>> {
+  pub fn new(x_: Rc<AVar<AData<A>>>, index_: Rc<AVar<AData<Idx>>>, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> Out>) -> Rc<IndexOp<A, Idx, Out>> {
     let node = NodeId::new();
     let x = x_.data();
     let index = index_.data();
@@ -2988,7 +2982,7 @@ impl<A, Idx, Out> IndexOp<A, Idx, Out> {
       index_:   index_,
       x:        x,
       index:    index,
-      y:        ArrayData::new(clk_horizon, alloc),
+      y:        AData::new(/*clk_horizon,*/ alloc),
     })
   }
 }
@@ -2997,13 +2991,13 @@ pub struct BatchJoinOp<A, B, Join> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
-  y:    ArrayData<B>,
+  x:    AData<A>,
+  y:    AData<B>,
   kernel:   Join,
 }
 
 impl<A, B, Join> BatchJoinOp<A, B, Join> {
-  pub fn new<Op>(x_: Rc<Op>, kernel: Join, clk_horizon: usize, alloc: Rc<Fn(TxnId, NodeId) -> B>) -> Rc<BatchJoinOp<A, B, Join>> where Op: 'static + AVar<AData<A>> {
+  pub fn new<Op>(x_: Rc<Op>, kernel: Join, /*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> B>) -> Rc<BatchJoinOp<A, B, Join>> where Op: 'static + AVar<AData<A>> {
     let node = NodeId::new();
     let x = x_.data();
     Rc::new(BatchJoinOp{
@@ -3011,7 +3005,7 @@ impl<A, B, Join> BatchJoinOp<A, B, Join> {
       stack:    OperatorStack::new(node, 1),
       x_:   x_,
       x:    x,
-      y:    ArrayData::new(clk_horizon, alloc),
+      y:    AData::new(/*clk_horizon,*/ alloc),
       kernel:   kernel,
     })
   }
@@ -3032,7 +3026,7 @@ pub fn batch_sum<Op, A, B>(x_: Rc<Op>) -> Rc<BatchJoinOp<A, B, SumJoinKernel>> w
 }*/
 
 impl<A, B, Join> AVar<AData<B>> for BatchJoinOp<A, B, Join> where BatchJoinOp<A, B, Join>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<B> {
+  default fn _owned_data(&self) -> &AData<B> {
     &self.y
   }
 }
@@ -3099,9 +3093,10 @@ pub struct SequentialJoinOp<A, B, JoinF> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:   Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
-  y:    ArrayData<B>,
-  curr_clk: Cell<usize>,
+  x:    AData<A>,
+  y:    AData<B>,
+  //curr_clk: Cell<usize>,
+  clock:    Rc<Clock>,
   kernel:   JoinF,
 }
 
@@ -3130,7 +3125,7 @@ impl AOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
 
   fn _forward(&self, txn: TxnId) {
     let node = self._id();
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let x_val = self.x.val.get_clk(clk, txn, node);
     let batch_sz = x_val.batch_size();
     if self.y.val.accumulate(txn, node, |val| val.reshape_mut(batch_sz).set_constant(0.0)) {
@@ -3141,7 +3136,7 @@ impl AOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
 
   fn _backward(&self, txn: TxnId) {
     let node = self._id();
-    let clk = self.curr_clk.get();
+    let clk = self.clock.time();
     let y_grad = self.y.grad.get_clk(clk, txn, node);
     let batch_sz = y_grad.batch_size();
     if self.x.grad.accumulate(txn, node, |grad| grad.reshape_mut(batch_sz).set_constant(0.0)) {
@@ -3150,13 +3145,13 @@ impl AOp for SequentialJoinOp<Batch<f32>, Batch<f32>, SumJoinKernel> {
     }
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     self.curr_clk.set(0);
   }
 
   fn _set_clock(&self, new_clk: usize) {
     self.curr_clk.set(new_clk);
-  }
+  }*/
 }
 
 pub fn sink<Op, A>(x_: Rc<Op>) -> Rc<ArraySink<Op, A>> where Op: AVar<AData<A>> {
@@ -3172,7 +3167,7 @@ pub fn sink<Op, A>(x_: Rc<Op>) -> Rc<ArraySink<Op, A>> where Op: AVar<AData<A>> 
 pub struct ArraySink<Op, A> where Op: AVar<AData<A>> {
   node: NodeId,
   x_:   Rc<Op>,
-  x:    ArrayData<A>,
+  x:    AData<A>,
   _m:   PhantomData<A>,
 }
 
@@ -3201,7 +3196,7 @@ impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: AVar<AData<f32>> {
 pub struct GradientSink<A> {
   node: NodeId,
   x_:   Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
+  x:    AData<A>,
 }
 
 impl GradientSink<f32> {
@@ -3229,8 +3224,8 @@ pub struct GaussNewtonSink<A> {
   node: NodeId,
   x_:   Rc<AVar<AData<A>>>,
   rx_:  Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
-  rx:   ArrayData<A>,
+  x:    AData<A>,
+  rx:   AData<A>,
 }
 
 impl GaussNewtonSink<Batch<f32>> {
@@ -3262,8 +3257,8 @@ pub struct HessianSink<A> {
   node: NodeId,
   x_:   Rc<AVar<AData<A>>>,
   rx_:  Rc<AVar<AData<A>>>,
-  x:    ArrayData<A>,
-  rx:   ArrayData<A>,
+  x:    AData<A>,
+  rx:   AData<A>,
 }
 
 impl HessianSink<f32> {
@@ -3314,18 +3309,18 @@ pub struct LstSqLoss<A, Loss> {
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
   target_:  Rc<AVar<AData<A>>>,
-  x:        ArrayData<A>,
-  target:   ArrayData<A>,
-  loss:     ArrayData<Loss>,
+  x:        AData<A>,
+  target:   AData<A>,
+  loss:     AData<Loss>,
   clip:     bool,
 }
 
 impl<A, Loss> LstSqLoss<A, Loss> {
-  pub fn new(clip: bool, x_: Rc<AVar<AData<A>>>, target_: Rc<AVar<AData<A>>>, clk_horizon: usize, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<LstSqLoss<A, Loss>> {
+  pub fn new(clip: bool, x_: Rc<AVar<AData<A>>>, target_: Rc<AVar<AData<A>>>, /*clk_horizon: usize,*/ loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<LstSqLoss<A, Loss>> {
     let node = NodeId::new();
     let x = x_.data();
     let target = target_.data();
-    let loss = ArrayData::new(clk_horizon, loss_alloc.clone());
+    let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
     Rc::new(LstSqLoss{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
@@ -3340,7 +3335,7 @@ impl<A, Loss> LstSqLoss<A, Loss> {
 }
 
 impl<A, Loss> AVar<AData<Loss>> for LstSqLoss<A, Loss> where LstSqLoss<A, Loss>: AOp {
-  default fn _owned_data(&self) -> &ArrayData<Loss> {
+  default fn _owned_data(&self) -> &AData<Loss> {
     &self.loss
   }
 }
@@ -3363,9 +3358,9 @@ pub struct SoftmaxSelfLoss<A, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
-  x:        ArrayData<A>,
-  prob:     ArrayData<A>,
-  loss:     ArrayData<Loss>,
+  x:        AData<A>,
+  prob:     AData<A>,
+  loss:     AData<Loss>,
   link:     Link,
   adj:      RefCell<Option<Rc<AVar<()>>>>,
 }
@@ -3374,11 +3369,11 @@ impl<A, Loss, Link> SoftmaxSelfLoss<A, Loss, Link>
 where A: 'static, Loss: 'static, Link: 'static,
       SoftmaxSelfLoss<A, Loss, Link>: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
     let node = NodeId::new();
     let x = x_.data();
-    let prob = ArrayData::new(clk_horizon, prob_alloc.clone());
-    let loss = ArrayData::new(clk_horizon, loss_alloc.clone());
+    let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
+    let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
     let softmax_ = Rc::new(SoftmaxSelfLoss{
       node_id:  node,
       stack:    OperatorStack::new(node, 1),
@@ -3424,10 +3419,10 @@ pub struct SoftmaxPairLoss<A, Target, Loss, Link> {
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
   target_:  Rc<AVar<AData<Target>>>,
-  x:        ArrayData<A>,
-  target:   ArrayData<Target>,
-  prob:     ArrayData<A>,
-  loss:     ArrayData<Loss>,
+  x:        AData<A>,
+  target:   AData<Target>,
+  prob:     AData<A>,
+  loss:     AData<Loss>,
   link:     Link,
 }
 
@@ -3435,12 +3430,12 @@ impl<A, Target, Loss, Link> SoftmaxPairLoss<A, Target, Loss, Link>
 where A: 'static, Target: 'static, Loss: 'static, Link: 'static,
       SoftmaxPairLoss<A, Target, Loss, Link>: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, target_: Rc<AVar<AData<Target>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, target_: Rc<AVar<AData<Target>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
     let node = NodeId::new();
     let x = x_.data();
     let target = target_.data();
-    let prob = ArrayData::new(clk_horizon, prob_alloc.clone());
-    let loss = ArrayData::new(clk_horizon, loss_alloc.clone());
+    let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
+    let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
     let softmax_ = Rc::new(SoftmaxPairLoss{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
@@ -3482,20 +3477,20 @@ pub struct SoftmaxLoss<A, Target, Loss, Link> {
   target_:  Option<Rc<AVar<AData<Target>>>>,
   prob_:    Weak<PassOp<A>>,
   loss_:    Weak<PassOp<Loss>>,
-  x:        ArrayData<A>,
-  target:   Option<ArrayData<Target>>,
-  prob:     ArrayData<A>,
-  loss:     ArrayData<Loss>,
-  /*logit:        ArrayData<A>,
-  max_logit:    ArrayData<Loss>,
-  factor:       ArrayData<A>,
-  max_factor:   ArrayData<Loss>,*/
+  x:        AData<A>,
+  target:   Option<AData<Target>>,
+  prob:     AData<A>,
+  loss:     AData<Loss>,
+  /*logit:        AData<A>,
+  max_logit:    AData<Loss>,
+  factor:       AData<A>,
+  max_factor:   AData<Loss>,*/
   link:     Link,
 }
 
 impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> where SoftmaxLoss<A, Target, Loss, Link>: AOp, A: 'static, Target: 'static, Loss: 'static, Link: 'static {
-  //pub fn new(x_: Rc<AVar<AData<A>>>, target_: Option<Rc<AVar<AData<Target>>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
-  pub fn new<Op>(x_: Rc<Op>, target_: Option<Rc<AVar<AData<Target>>>>, link: Link, clk_horizon: usize, prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) where Op: 'static + AVar<AData<A>> {
+  //pub fn new(x_: Rc<AVar<AData<A>>>, target_: Option<Rc<AVar<AData<Target>>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
+  pub fn new<Op>(x_: Rc<Op>, target_: Option<Rc<AVar<AData<Target>>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) where Op: 'static + AVar<AData<A>> {
     let node = NodeId::new();
     let in_degree = match target_ {
       None      => 1,
@@ -3504,8 +3499,8 @@ impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> where SoftmaxLoss
     //let x__: Rc<AOp> = ArrayOp::downgrade(x_.clone());
     let x = x_.data();
     let target = target_.as_ref().map(|t_| t_.data());
-    let prob = ArrayData::new(clk_horizon, prob_alloc.clone());
-    let loss = ArrayData::new(clk_horizon, loss_alloc.clone());
+    let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
+    let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
     let prob_ = PassOp::new(None, prob.clone());
     let loss_ = PassOp::new(None, loss.clone());
     let softmax = Rc::new(SoftmaxLoss{
@@ -3518,8 +3513,8 @@ impl<A, Target, Loss, Link> SoftmaxLoss<A, Target, Loss, Link> where SoftmaxLoss
       x:        x,
       target:   target,
       prob:     prob,
-      loss:     loss, //ArrayData::new(clk_horizon, alloc.clone()),
-      //logit:    ArrayData::new(1, alloc.clone()),
+      loss:     loss, //AData::new(/*clk_horizon,*/ alloc.clone()),
+      //logit:    AData::new(1, alloc.clone()),
       link:     link,
     });
     *prob_.x_.borrow_mut() = Some(AOp::from(softmax.clone()));

@@ -284,7 +284,7 @@ impl<T> AOp for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -294,14 +294,8 @@ impl<T> AOp for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
-
-/*impl AVar<AData<DeviceBatchIoMem<u8>>> for SrcOp<DeviceBatchIoMem<u8>> {
-  fn data(&self) -> ArrayData<DeviceBatchIoMem<u8>> {
-    self.data.clone()
-  }
-}*/
 
 impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
@@ -399,7 +393,7 @@ impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -409,7 +403,7 @@ impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 impl AOp for PassOp<DeviceIoBatch<f32>> {
@@ -620,7 +614,7 @@ impl AOp for PassOp<DeviceArray1d<f32>> {
 }
 
 /*impl AVar<AData<DeviceArray1d<f32>>> for SrcOp<DeviceArray1d<f32>> {
-  fn data(&self) -> ArrayData<DeviceArray1d<f32>> {
+  fn data(&self) -> AData<DeviceArray1d<f32>> {
     self.data.clone()
   }
 }*/
@@ -680,7 +674,7 @@ impl AOp for SrcOp<DeviceMem<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -690,7 +684,7 @@ impl AOp for SrcOp<DeviceMem<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 impl AOp for SrcOp<DeviceArray1d<f32>> {
@@ -748,7 +742,7 @@ impl AOp for SrcOp<DeviceArray1d<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -758,7 +752,7 @@ impl AOp for SrcOp<DeviceArray1d<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 impl AOp for SrcOp<DeviceArray2d<f32>> {
@@ -816,7 +810,7 @@ impl AOp for SrcOp<DeviceArray2d<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -826,7 +820,7 @@ impl AOp for SrcOp<DeviceArray2d<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 impl AOp for SrcOp<DeviceArray4d<f32>> {
@@ -884,7 +878,7 @@ impl AOp for SrcOp<DeviceArray4d<f32>> {
   fn _backward(&self, _txn: TxnId) {
   }
 
-  fn _reset_clock(&self) {
+  /*fn _reset_clock(&self) {
     if self.clock {
       self.data.reset_clock_all();
     }
@@ -894,7 +888,7 @@ impl AOp for SrcOp<DeviceArray4d<f32>> {
     if self.clock {
       self.data.set_clock_all(clk);
     }
-  }
+  }*/
 }
 
 pub fn normal_linear_init_gpu<R>(mean: f64, std: f64) -> impl Fn(Rc<RefCell<R>>, &mut DeviceArray2d<f32>) where R: Rng {
@@ -972,7 +966,7 @@ pub fn kaiming_conv2d_init_gpu<R>(axes: Axes<(usize, usize)>) -> impl Fn(Rc<RefC
   }
 }
 
-impl AOp for InitializeOp<DeviceMem<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceMem<f32>>)>> {
+impl AOp for InitializeOp<DeviceMem<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<DeviceMem<f32>>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1011,7 +1005,7 @@ impl AOp for InitializeOp<DeviceMem<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaCha
 }
 
 //impl<F> AOp for InitializeOp<DeviceArray1d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray1d<f32>) {
-impl AOp for InitializeOp<DeviceArray1d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray1d<f32>>)>> {
+impl AOp for InitializeOp<DeviceArray1d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<DeviceArray1d<f32>>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1050,7 +1044,7 @@ impl AOp for InitializeOp<DeviceArray1d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<Ch
 }
 
 //impl<F> AOp for InitializeOp<DeviceArray2d<f32>, Rc<F>> where F: Fn(Rc<RefCell<ChaChaRng>>, &mut DeviceArray2d<f32>) {
-impl AOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray2d<f32>>)>> {
+impl AOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<DeviceArray2d<f32>>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1088,7 +1082,7 @@ impl AOp for InitializeOp<DeviceArray2d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<Ch
   }
 }
 
-impl AOp for InitializeOp<DeviceArray4d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, ArrayData<DeviceArray4d<f32>>)>> {
+impl AOp for InitializeOp<DeviceArray4d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<DeviceArray4d<f32>>)>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1123,13 +1117,13 @@ impl AOp for InitializeOp<DeviceArray4d<f32>, Rc<Fn(TxnId, NodeId, Rc<RefCell<Ch
   }
 }
 
-impl AVar<AData<DeviceArray1d<f32>>> for BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, ArrayData<DeviceArray1d<f32>>> {
-  fn _owned_data(&self) -> &ArrayData<DeviceArray1d<f32>> {
+impl AVar<AData<DeviceArray1d<f32>>> for BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, AData<DeviceArray1d<f32>>> {
+  fn _owned_data(&self) -> &AData<DeviceArray1d<f32>> {
     &self.output
   }
 }
 
-impl AOp for BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, ArrayData<DeviceArray1d<f32>>> {
+impl AOp for BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, Rc<AVar<AData<DeviceArray1d<f32>>>>, AData<DeviceArray1d<f32>>> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -1197,8 +1191,8 @@ impl AOp for BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<DeviceArray1d<f32>>>
 
 impl<Op> SpecialMapExt</*f32,*/ DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   fn rect(&self) -> Rc<MapOp<DeviceBatchArray1d<f32>, RectMapKernel>> {
-    let clk_horizon = self.data().horizon();
-    MapOp::new(RectMapKernel, self.clone(), clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
@@ -1211,8 +1205,8 @@ impl<Op> SpecialMapExt</*f32,*/ DeviceBatchArray1d<f32>> for Rc<Op> where Op: 's
 
 impl<Op> SpecialMapExt<DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn rect(&self) -> Rc<MapOp<DeviceBatchArray3d<f32>, RectMapKernel>> {
-    let clk_horizon = self.data().horizon();
-    MapOp::new(RectMapKernel, self.clone(), clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
@@ -1425,8 +1419,8 @@ impl AOp for MapOp<DeviceBatchArray3d<f32>, RectMapKernel> {
 
 impl<Op> CastExt<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<u8>>> {
   fn cast(&self) -> Rc<TransformOp<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>, CastTransform>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), CastTransform, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), CastTransform, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1438,7 +1432,7 @@ impl<Op> CastExt<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>> for Rc<Op> whe
 }
 
 impl AVar<AData<DeviceBatchArray1d<f32>>> for TransformOp<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>, CastTransform> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray1d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray1d<f32>> {
     &self.y
   }
 }
@@ -1495,8 +1489,8 @@ impl AOp for TransformOp<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>, CastTr
 
 impl<Op> CastExt<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<u8>>> {
   fn cast(&self) -> Rc<TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTransform>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), CastTransform, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), CastTransform, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -1508,7 +1502,7 @@ impl<Op> CastExt<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>> for Rc<Op> whe
 }
 
 impl AVar<AData<DeviceBatchArray3d<f32>>> for TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTransform> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
     &self.y
   }
 }
@@ -1592,8 +1586,8 @@ impl AOp for TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTr
 
 impl<Op> FlattenExt<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn flatten(&self) -> Rc<TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, FlattenTransform>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), FlattenTransform, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), FlattenTransform, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -1605,7 +1599,7 @@ impl<Op> FlattenExt<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>> for Rc<Op>
 }
 
 impl AVar<AData<DeviceBatchArray1d<f32>>> for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, FlattenTransform> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray1d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray1d<f32>> {
     &self.y
   }
 }
@@ -1657,8 +1651,8 @@ impl AOp for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, Flatt
 
 impl<Op> ReshapeExt<usize, DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchIoMem<u8>>> {
   fn reshape(&self, dim: usize) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTransform<usize>>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         // TODO: DeviceBatchIoMem has no present capacity, only a current size.
@@ -1671,7 +1665,7 @@ impl<Op> ReshapeExt<usize, DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>> for Rc<
 }
 
 impl AVar<AData<DeviceBatchArray1d<u8>>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTransform<usize>> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray1d<u8>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray1d<u8>> {
     &self.y
   }
 }
@@ -1722,8 +1716,8 @@ impl AOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTr
 
 impl<Op> ReshapeExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchIoMem<u8>>> {
   fn reshape(&self, dim: (usize, usize, usize)) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         // TODO: DeviceBatchIoMem has no present capacity, only a current size.
@@ -1736,7 +1730,7 @@ impl<Op> ReshapeExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArra
 }
 
 impl AVar<AData<DeviceBatchArray3d<u8>>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray3d<u8>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<u8>> {
     &self.y
   }
 }
@@ -1788,8 +1782,8 @@ impl AOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTr
 impl<Op> ReshapeExt<(), DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   fn reshape(&self, dim: ()) -> Rc<TransformOp<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, ReshapeTransform<()>>> {
     let x = self.data();
-    let clk_horizon = x.horizon();
-    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, clk_horizon, {
+    //let clk_horizon = x.horizon();
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
         assert_eq!(1, x_dim);
@@ -1849,8 +1843,8 @@ impl AOp for TransformOp<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, ReshapeTra
 
 impl<Op> ZeroPadExt<DeviceBatchArray3d<f32>, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn zero_pad(&self, axis: usize, dim: usize) -> Rc<TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray3d<f32>, ZeroPadTransform>> {
-    let clk_horizon = self.data().horizon();
-    TransformOp::new(self.clone(), ZeroPadTransform{axis: axis, dim: dim}, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), ZeroPadTransform{axis: axis, dim: dim}, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -1869,7 +1863,7 @@ impl<Op> ZeroPadExt<DeviceBatchArray3d<f32>, DeviceBatchArray3d<f32>> for Rc<Op>
 }
 
 impl AVar<AData<DeviceBatchArray3d<f32>>> for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray3d<f32>, ZeroPadTransform> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
     &self.y
   }
 }
@@ -1951,19 +1945,24 @@ impl AOp for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray3d<f32>, ZeroP
 
 impl SumExt<DeviceIoBatch<f32>> for Rc<JoinOp<DeviceIoBatch<f32>, SumJoinKernel>> {
   fn sum(xs_: Vec<Rc<AVar<AData<DeviceIoBatch<f32>>>>>) -> Rc<JoinOp<DeviceIoBatch<f32>, SumJoinKernel>> {
-    let mut clk_horizon0 = None;
+    /*let mut clk_horizon0 = None;
     let mut xs = Vec::with_capacity(xs_.len());
     for x_ in xs_.iter() {
       let x = x_.data();
-      let clk_horizon = x.horizon();
+      //let clk_horizon = x.horizon();
       match clk_horizon0 {
         None      => clk_horizon0 = Some(clk_horizon),
         Some(hzn) => assert_eq!(hzn, clk_horizon),
       }
       xs.push(x);
+    }*/
+    let mut xs = Vec::with_capacity(xs_.len());
+    for x_ in xs_.iter() {
+      let x = x_.data();
+      xs.push(x);
     }
-    let clk_horizon = clk_horizon0.unwrap();
-    JoinOp::new(xs_, SumJoinKernel, clk_horizon, {
+    //let clk_horizon = clk_horizon0.unwrap();
+    JoinOp::new(xs_, SumJoinKernel, /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let mut batch_cap0 = None;
         for x in xs.iter() {
@@ -2037,19 +2036,24 @@ impl AOp for JoinOp<DeviceIoBatch<f32>, SumJoinKernel> {
 
 impl SumExt<DeviceBatchArray1d<f32>> for Rc<JoinOp<DeviceBatchArray1d<f32>, SumJoinKernel>> {
   fn sum(xs_: Vec<Rc<AVar<AData<DeviceBatchArray1d<f32>>>>>) -> Rc<JoinOp<DeviceBatchArray1d<f32>, SumJoinKernel>> {
-    let mut clk_horizon0 = None;
+    /*let mut clk_horizon0 = None;
     let mut xs = Vec::with_capacity(xs_.len());
     for x_ in xs_.iter() {
       let x = x_.data();
-      let clk_horizon = x.horizon();
+      //let clk_horizon = x.horizon();
       match clk_horizon0 {
         None      => clk_horizon0 = Some(clk_horizon),
         Some(hzn) => assert_eq!(hzn, clk_horizon),
       }
       xs.push(x);
+    }*/
+    let mut xs = Vec::with_capacity(xs_.len());
+    for x_ in xs_.iter() {
+      let x = x_.data();
+      xs.push(x);
     }
-    let clk_horizon = clk_horizon0.unwrap();
-    JoinOp::new(xs_, SumJoinKernel, clk_horizon, {
+    //let clk_horizon = clk_horizon0.unwrap();
+    JoinOp::new(xs_, SumJoinKernel, /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let mut batch_cap0 = None;
         let mut x_dim0 = None;
@@ -2129,19 +2133,24 @@ impl AOp for JoinOp<DeviceBatchArray1d<f32>, SumJoinKernel> {
 
 impl SumExt<DeviceBatchArray3d<f32>> for Rc<JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel>> {
   fn sum(xs_: Vec<Rc<AVar<AData<DeviceBatchArray3d<f32>>>>>) -> Rc<JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel>> {
-    let mut clk_horizon0 = None;
+    /*let mut clk_horizon0 = None;
     let mut xs = Vec::with_capacity(xs_.len());
     for x_ in xs_.iter() {
       let x = x_.data();
-      let clk_horizon = x.horizon();
+      //let clk_horizon = x.horizon();
       match clk_horizon0 {
         None      => clk_horizon0 = Some(clk_horizon),
         Some(hzn) => assert_eq!(hzn, clk_horizon),
       }
       xs.push(x);
+    }*/
+    let mut xs = Vec::with_capacity(xs_.len());
+    for x_ in xs_.iter() {
+      let x = x_.data();
+      xs.push(x);
     }
-    let clk_horizon = clk_horizon0.unwrap();
-    JoinOp::new(xs_, SumJoinKernel, clk_horizon, {
+    //let clk_horizon = clk_horizon0.unwrap();
+    JoinOp::new(xs_, SumJoinKernel, /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let mut batch_cap0 = None;
         let mut x_dim0 = None;
@@ -2222,8 +2231,8 @@ impl AOp for JoinOp<DeviceBatchArray3d<f32>, SumJoinKernel> {
 impl<Op> SymmClipExt<DeviceBatchArray1d<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   fn symm_unit_clip(&self, c_: Rc<AVar<AData<DeviceMem<f32>>>>) -> Rc<ClipOp<DeviceBatchArray1d<f32>, DeviceMem<f32>, SymmUnitClipKernel>> {
     let x = self.data();
-    let clk_horizon = x.horizon();
-    ClipOp::new(self.clone(), c_, SymmUnitClipKernel, clk_horizon, {
+    //let clk_horizon = x.horizon();
+    ClipOp::new(self.clone(), c_, SymmUnitClipKernel, /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
         let batch_cap = x.val.get(txn, node).batch_capacity();
@@ -2236,8 +2245,8 @@ impl<Op> SymmClipExt<DeviceBatchArray1d<f32>, DeviceMem<f32>> for Rc<Op> where O
 impl<Op> SymmClipExt<DeviceBatchArray3d<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn symm_unit_clip(&self, c_: Rc<AVar<AData<DeviceMem<f32>>>>) -> Rc<ClipOp<DeviceBatchArray3d<f32>, DeviceMem<f32>, SymmUnitClipKernel>> {
     let x = self.data();
-    let clk_horizon = x.horizon();
-    ClipOp::new(self.clone(), c_, SymmUnitClipKernel, clk_horizon, {
+    //let clk_horizon = x.horizon();
+    ClipOp::new(self.clone(), c_, SymmUnitClipKernel, /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
         let batch_cap = x.val.get(txn, node).batch_capacity();
@@ -2397,8 +2406,8 @@ impl AOp for ClipOp<DeviceBatchArray3d<f32>, DeviceMem<f32>, SymmUnitClipKernel>
 
 impl BroadcastAddExt<DeviceBatchArray1d<f32>, DeviceBatchArray3d<f32>> for Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
   fn broadcast_add(&self, axes: Vec<usize>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<BroadcastAddOp<DeviceBatchArray1d<f32>, DeviceBatchArray3d<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    BroadcastAddOp::new(axes, self.clone(), x_.clone(), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    BroadcastAddOp::new(axes, self.clone(), x_.clone(), /*clk_horizon,*/ {
       let a = self.data();
       let x = x_.data();
       Rc::new(move |txn, node| {
@@ -2415,8 +2424,8 @@ impl BroadcastAddExt<DeviceBatchArray1d<f32>, DeviceBatchArray3d<f32>> for Rc<AV
 
 impl<Op> BroadcastAddExt<DeviceBatchArray1d<f32>, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   fn broadcast_add(&self, axes: Vec<usize>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<BroadcastAddOp<DeviceBatchArray1d<f32>, DeviceBatchArray3d<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    BroadcastAddOp::new(axes, self.clone(), x_.clone(), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    BroadcastAddOp::new(axes, self.clone(), x_.clone(), /*clk_horizon,*/ {
       let a = self.data();
       let x = x_.data();
       Rc::new(move |txn, node| {
@@ -2545,18 +2554,18 @@ impl AOp for BroadcastAddOp<DeviceBatchArray1d<f32>, DeviceBatchArray3d<f32>> {
 
 impl<Op> MultExt<DeviceArray1d<f32>, DeviceMem<f32>, DeviceArray1d<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceArray1d<f32>>> {
   fn mult(&self, x_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<LinearOp<DeviceArray1d<f32>, DeviceMem<f32>, DeviceArray1d<f32>, DeviceMem<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_, None, clk_horizon, Rc::new(|_, _| DeviceMem::<f32>::zeros(1, DeviceStream::implicit().conn())))
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_, None, /*clk_horizon,*/ Rc::new(|_, _| DeviceMem::<f32>::zeros(1, DeviceStream::implicit().conn())))
   }
 
   fn mult_add(&self, x_: Rc<AVar<AData<DeviceArray1d<f32>>>>, b_: Rc<AVar<AData<DeviceMem<f32>>>>) -> Rc<LinearOp<DeviceArray1d<f32>, DeviceMem<f32>, DeviceArray1d<f32>, DeviceMem<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_, Some(b_), clk_horizon, Rc::new(|_, _| DeviceMem::<f32>::zeros(1, DeviceStream::implicit().conn())))
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_, Some(b_), /*clk_horizon,*/ Rc::new(|_, _| DeviceMem::<f32>::zeros(1, DeviceStream::implicit().conn())))
   }
 }
 
 /*impl AVar<AData<DeviceMem<f32>>> for LinearOp<DeviceArray1d<f32>, DeviceMem<f32>, DeviceArray1d<f32>, DeviceMem<f32>> {
-  fn _owned_data(&self) -> &ArrayData<DeviceMem<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceMem<f32>> {
     &self.y
   }
 }*/
@@ -2636,8 +2645,8 @@ impl AOp for LinearOp<DeviceArray1d<f32>, DeviceMem<f32>, DeviceArray1d<f32>, De
 
 impl MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>> for Rc<AVar<AData<DeviceArray2d<f32>>>> {
   fn mult(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>) -> Rc<LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), None, /*clk_horizon,*/ {
       let a = self.data();
       let x = x_.data();
       Rc::new(move |txn, node| {
@@ -2651,8 +2660,8 @@ impl MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, De
   }
 
   fn mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>, b_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), Some(b_.clone()), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), Some(b_.clone()), /*clk_horizon,*/ {
       let a = self.data();
       let b = b_.data();
       let x = x_.data();
@@ -2671,8 +2680,8 @@ impl MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, De
 
 impl<Op> MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceArray2d<f32>>> {
   fn mult(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>) -> Rc<LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), None, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), None, /*clk_horizon,*/ {
       let a = self.data();
       let x = x_.data();
       Rc::new(move |txn, node| {
@@ -2686,8 +2695,8 @@ impl<Op> MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>
   }
 
   fn mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>, b_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>>> {
-    let clk_horizon = x_.data().horizon();
-    LinearOp::new(self.clone(), x_.clone(), Some(b_.clone()), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    LinearOp::new(self.clone(), x_.clone(), Some(b_.clone()), /*clk_horizon,*/ {
       let a = self.data();
       let b = b_.data();
       let x = x_.data();
@@ -2840,8 +2849,8 @@ impl AOp for LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d
 
 impl<Op> ElemMultExt<f32, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<f32>> {
   fn elem_mult(&self, x_: Rc<AVar<AData<DeviceIoBatch<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceIoBatch<f32>, BroadcastMultAddKernel>> {
-    let clk_horizon = x_.data().horizon();
-    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
@@ -2923,8 +2932,8 @@ impl AOp for ElemLinearOp<f32, DeviceIoBatch<f32>, BroadcastMultAddKernel> {
 
 impl<Op> ElemMultExt<DeviceIoBatch<f32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceIoBatch<f32>>> {
   fn elem_mult(&self, x_: Rc<AVar<AData<DeviceIoBatch<f32>>>>) -> Rc<ElemLinearOp<DeviceIoBatch<f32>, DeviceIoBatch<f32>, BroadcastMultAddKernel>> {
-    let clk_horizon = x_.data().horizon();
-    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, /*clk_horizon,*/ {
       let a = self.data();
       let x = x_.data();
       Rc::new(move |txn, node| {
@@ -3026,8 +3035,8 @@ impl AOp for ElemLinearOp<DeviceIoBatch<f32>, DeviceIoBatch<f32>, BroadcastMultA
 
 impl<Op> ElemMultExt<f32, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<f32>> {
   fn elem_mult(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel>> {
-    let clk_horizon = x_.data().horizon();
-    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -3099,8 +3108,8 @@ impl AOp for ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel> 
 
 impl<Op> ElemMultExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<f32>> {
   fn elem_mult(&self, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel>> {
-    let clk_horizon = x_.data().horizon();
-    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -3178,8 +3187,8 @@ impl<Op> ElemMultExt<DeviceArray1d<f32>, DeviceBatchArray3d<f32>> for Rc<Op> whe
   }
 
   fn elem_mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>, b_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<ElemLinearOp<DeviceArray1d<f32>, DeviceBatchArray3d<f32>, BroadcastMultAddKernel>> {
-    let clk_horizon = self.data().horizon();
-    ElemLinearOp::new(/*axes,*/ self.clone(), x_.clone(), Some(b_), BroadcastMultAddKernel, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    ElemLinearOp::new(/*axes,*/ self.clone(), x_.clone(), Some(b_), BroadcastMultAddKernel, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -3336,8 +3345,8 @@ impl AOp for ElemLinearOp<DeviceArray1d<f32>, DeviceBatchArray3d<f32>, Broadcast
 
 impl<Op> ElemNormalizeExt<(usize, usize), DeviceArray1d<f32>, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn elem_normalize(&self, axes: Axes<(usize, usize)>, epsilon: f64, mean_: Rc<AVar<AData<DeviceArray1d<f32>>>>, var_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<ElemNormalizeOp<(usize, usize), DeviceArray1d<f32>, DeviceBatchArray3d<f32>>> {
-    let clk_horizon = self.data().horizon();
-    ElemNormalizeOp::new(axes, epsilon, self.clone(), mean_, var_, clk_horizon, {
+    //let clk_horizon = self.data().horizon();
+    ElemNormalizeOp::new(axes, epsilon, self.clone(), mean_, var_, /*clk_horizon,*/ {
       let x = self.data();
       Rc::new(move |txn, node| {
         let dim = x.val.get(txn, node).dim();
@@ -3545,14 +3554,14 @@ pub struct CudnnConvBackend {
 
 impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> for Rc<Op> where Op: 'static + AVar<AData<DeviceArray4d<f32>>> {
   fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
-    let clk_horizon = x_.data().horizon();
+    //let clk_horizon = x_.data().horizon();
     // TODO: the default of 1024 might need to be decreased.
     let backend = CudnnConvBackend{
       scratch_sz:   Cell::new(1024),
       scratch:      RefCell::new(DeviceMem::zeros(1024, DeviceStream::implicit().conn())),
       sizes:        RefCell::new(FnvHashMap::default()),
     };
-    ConvOp::new(shape, self.clone(), x_.clone(), None, backend, clk_horizon, {
+    ConvOp::new(shape, self.clone(), x_.clone(), None, backend, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -3565,14 +3574,14 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
   }
 
   fn conv_add(&self, shape: ConvShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>, b_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
-    let clk_horizon = x_.data().horizon();
+    //let clk_horizon = x_.data().horizon();
     // TODO: the default of 1024 might need to be decreased.
     let backend = CudnnConvBackend{
       scratch_sz:   Cell::new(1024),
       scratch:      RefCell::new(DeviceMem::zeros(1024, DeviceStream::implicit().conn())),
       sizes:        RefCell::new(FnvHashMap::default()),
     };
-    ConvOp::new(shape, self.clone(), x_.clone(), Some(b_.clone()), backend, clk_horizon, {
+    ConvOp::new(shape, self.clone(), x_.clone(), Some(b_.clone()), backend, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -3584,7 +3593,7 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
 }
 
 impl AVar<AData<DeviceBatchArray3d<f32>>> for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
     &self.y
   }
 }
@@ -3872,17 +3881,18 @@ impl CaffePoolKernel for MaxPool {
 }
 
 pub struct CaffePoolGPUBackend {
-  //mask: ArrayData<DeviceBatchArray3d<i32>>,
+  //mask: AData<DeviceBatchArray3d<i32>>,
   //mask: RefCell<DeviceBatchArray3d<i32>>,
-  mask: TxnVar<DeviceBatchArray3d<i32>>,
+  mask: AData<DeviceBatchArray3d<i32>>,
 }
 
 impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> for Op where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   //fn avg_pool(shape: PoolShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<PoolOp<(usize, usize), DeviceBatchArray3d<f32>, AvgPool, CaffePoolGPUBackend>> {
   fn avg_pool(shape: PoolShape<(usize, usize)>, x_: Rc<Op>) -> Rc<PoolOp<(usize, usize), DeviceBatchArray3d<f32>, AvgPool, CaffePoolGPUBackend>> {
-    let clk_horizon = x_.data().horizon();
+    //let clk_horizon = x_.data().horizon();
     let backend = CaffePoolGPUBackend{
-      mask: TxnVar::new(Symbol::new(), Val, clk_horizon, {
+      //mask: TxnVar::new(Symbol::new(), Val, /*clk_horizon,*/ {
+      mask: AData::new({
         let x = x_.data();
         Rc::new(move |txn, node| {
           let x_dim = x.val.get(txn, node).dim();
@@ -3892,7 +3902,7 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
         })
       }),
     };
-    PoolOp::new(shape, x_.clone(), AvgPool, backend, clk_horizon, {
+    PoolOp::new(shape, x_.clone(), AvgPool, backend, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -3906,9 +3916,10 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
 
   //fn max_pool(shape: PoolShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, CaffePoolGPUBackend>> {
   fn max_pool(shape: PoolShape<(usize, usize)>, x_: Rc<Op>) -> Rc<PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, CaffePoolGPUBackend>> {
-    let clk_horizon = x_.data().horizon();
+    //let clk_horizon = x_.data().horizon();
     let backend = CaffePoolGPUBackend{
-      mask: TxnVar::new(Symbol::new(), Val, clk_horizon, {
+      //mask: TxnVar::new(Symbol::new(), Val, /*clk_horizon,*/ {
+      mask: AData::new({
         let x = x_.data();
         Rc::new(move |txn, node| {
           let x_dim = x.val.get(txn, node).dim();
@@ -3918,7 +3929,7 @@ impl<Op> PoolExt<(usize, usize), DeviceBatchArray3d<f32>, CaffePoolGPUBackend> f
         })
       }),
     };
-    PoolOp::new(shape, x_.clone(), MaxPool, backend, clk_horizon, {
+    PoolOp::new(shape, x_.clone(), MaxPool, backend, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -4023,11 +4034,11 @@ impl<Kernel> AOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Caf
           self.x.grad.get_mut(txn, node).as_view_mut().post(&conn);
         }
         CaffePoolKind::Max => {
-          assert!(self.backend.mask.overwrite(txn, node));
+          assert!(self.backend.mask.val.overwrite(txn, node));
           let conn = DeviceStream::implicit().conn();
           self.y.grad.get(txn, node).as_view().wait(&conn);
           self.x.grad.get_mut(txn, node).as_view_mut().wait(&conn);
-          self.backend.mask.get_excl(txn, node).as_view().wait(&conn);
+          self.backend.mask.val.get_excl(txn, node).as_view().wait(&conn);
           unsafe { arraydiff_cuda_kernel_max_pool_fwd_f32(
               x_dim.0, x_dim.1, x_dim.2, batch_sz,
               y_dim.0, y_dim.1,
@@ -4036,7 +4047,7 @@ impl<Kernel> AOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Caf
               pad_dim.0, pad_dim.1,
               self.x.val.get(txn, node).as_view().as_ptr(),
               null_mut(),
-              self.backend.mask.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+              self.backend.mask.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
               conn.raw_stream().as_ptr(),
           ) };
           unsafe { arraydiff_cuda_kernel_max_pool_bwd_f32(
@@ -4046,11 +4057,11 @@ impl<Kernel> AOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Caf
               self.shape.stride.0, self.shape.stride.1,
               pad_dim.0, pad_dim.1,
               self.y.grad.get(txn, node).as_view().as_ptr(),
-              self.backend.mask.get_excl(txn, node).as_view().as_ptr(),
+              self.backend.mask.val.get_excl(txn, node).as_view().as_ptr(),
               self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
               conn.raw_stream().as_ptr(),
           ) };
-          self.backend.mask.get_excl(txn, node).as_view().post(&conn);
+          self.backend.mask.val.get_excl(txn, node).as_view().post(&conn);
           self.y.grad.get(txn, node).as_view().post(&conn);
           self.x.grad.get_mut(txn, node).as_view_mut().post(&conn);
         }
@@ -4070,7 +4081,7 @@ pub struct CudnnPoolBackend {
 }
 
 impl<Kernel, Backend> AVar<AData<DeviceBatchArray3d<f32>>> for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Backend> where PoolOp<(usize, usize), DeviceBatchArray3d<f32>, Kernel, Backend>: AOp {
-  fn _owned_data(&self) -> &ArrayData<DeviceBatchArray3d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
     &self.y
   }
 }
@@ -4316,8 +4327,8 @@ impl AOp for PoolOp<(usize, usize), DeviceBatchArray3d<f32>, MaxPool, CudnnPoolB
 
 impl<Op> BatchStatsExt<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn batch_stats(reduce_axes: Axes<(usize, usize)>, cfg: BatchStatsConfig, ctrl: &mut BatchStatsControl, x_: Rc<Op>) -> BatchStatsOutput<DeviceArray1d<f32>> {
-    let clk_horizon = x_.data().horizon();
-    BatchStatsOp::<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>>::new(reduce_axes, cfg, ctrl, x_.clone(), clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    BatchStatsOp::<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d<f32>>::new(reduce_axes, cfg, ctrl, x_.clone(), /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         // FIXME(20170323): the following `rollover` is a little bit of a hack.
@@ -4555,8 +4566,8 @@ impl AOp for BatchStatsOp<(usize, usize), DeviceBatchArray3d<f32>, DeviceArray1d
 impl<Op, IdxOp> IndexExt<IdxOp, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>>, IdxOp: 'static + AVar<AData<DeviceIoBatch<u32>>> {
   fn index(&self, index_: Rc<IdxOp>) -> Rc<IndexOp<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>>> {
     let x = self.data();
-    let clk_horizon = x.horizon();
-    IndexOp::new(self.clone(), index_.clone(), clk_horizon, {
+    //let clk_horizon = x.horizon();
+    IndexOp::new(self.clone(), index_.clone(), /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
         DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
@@ -4645,8 +4656,8 @@ impl<Op> AutodiffSink for ArraySink<Op, DeviceMem<f32>> where Op: AVar<AData<Dev
 
 impl<Op> BatchSumExt<Op, DeviceIoBatch<f32>, DeviceMem<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceIoBatch<f32>>> {
   fn batch_sum(x_: Rc<Op>) -> Rc<BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel>> {
-    let clk_horizon = x_.data().horizon();
-    BatchJoinOp::new(x_.clone(), SumJoinKernel, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    BatchJoinOp::new(x_.clone(), SumJoinKernel, /*clk_horizon,*/ {
       Rc::new(move |_, _| {
         DeviceMem::zeros(1, DeviceStream::implicit().conn())
       })
@@ -4725,8 +4736,8 @@ impl AOp for BatchJoinOp<DeviceIoBatch<f32>, DeviceMem<f32>, SumJoinKernel> {
 impl<Op, Target> LstSqLossExt<Op, Target> for LstSqLoss<DeviceIoBatch<f32>, DeviceIoBatch<f32>> where Op: 'static + AVar<AData<DeviceIoBatch<f32>>>, Target: 'static + AVar<AData<DeviceIoBatch<f32>>> {
   fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Target>) -> Rc<Self> {
     let x = x_.data();
-    let clk_horizon = x.horizon();
-    LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), clk_horizon, {
+    //let clk_horizon = x.horizon();
+    LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
         DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
@@ -4807,8 +4818,8 @@ impl AOp for LstSqLoss<DeviceIoBatch<f32>, DeviceIoBatch<f32>> {
 impl<Op, Target> LstSqLossExt<Op, Target> for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>>, Target: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   fn lst_sq_loss(huber_clip: bool, x_: Rc<Op>, target_: Rc<Target>) -> Rc<Self> {
     let x = x_.data();
-    let clk_horizon = x.horizon();
-    LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), clk_horizon, {
+    //let clk_horizon = x.horizon();
+    LstSqLoss::new(huber_clip, x_.clone(), target_.clone(), /*clk_horizon,*/ {
       Rc::new(move |txn, node| {
         let batch_cap = x.val.get(txn, node).batch_capacity();
         DeviceIoBatch::zeros(batch_cap, DeviceStream::implicit().conn())
@@ -4905,8 +4916,8 @@ impl AOp for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, Entrop
 impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   //fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>>, Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
   fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
-    let clk_horizon = x_.data().horizon();
-    let (_, prob, loss) = SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, clk_horizon, {
+    //let clk_horizon = x_.data().horizon();
+    let (_, prob, loss) = SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, /*clk_horizon,*/ {
       let x = x_.data();
       Rc::new(move |txn, node| {
         let x_dim = x.val.get(txn, node).dim();
@@ -4925,7 +4936,7 @@ impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, Devi
 }
 
 /*impl AVar<AData<DeviceIoBatch<f32>>> for SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink> {
-  fn data(&self) -> ArrayData<DeviceIoBatch<f32>> {
+  fn data(&self) -> AData<DeviceIoBatch<f32>> {
     self.loss.clone()
   }
 }*/

@@ -16,7 +16,7 @@ limitations under the License.
 
 pub use super::{
   GLOBAL_CONFIG,
-  NodeId, TxnId, EpochNr, Epoch, OperatorStack, Var, VarSet, Symbol,
+  NodeId, TxnId, EpochNr, Epoch, Clock, OperatorStack, Var, VarSet, Symbol,
   AOp, AVar,
   AVarOutput, AData,
   ArrayData,
