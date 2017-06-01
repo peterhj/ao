@@ -4913,6 +4913,94 @@ impl AOp for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, Entrop
   }
 }
 
+impl AVar<()> for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+    // FIXME
+    unimplemented!();
+  }
+}
+
+impl AOp for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      self.target_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.target_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    // FIXME
+    unimplemented!();
+  }
+
+  fn _backward(&self, txn: TxnId) {
+    // FIXME
+    unimplemented!();
+  }
+}
+
+impl AVar<()> for SoftmaxLoss3<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
+  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+    // FIXME
+    unimplemented!();
+  }
+}
+
+impl AOp for SoftmaxLoss3<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      self.t1_._push(epoch, apply);
+      self.t2_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.t2_._pop(epoch, apply);
+      self.t1_._pop(epoch, apply);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    // FIXME
+    unimplemented!();
+  }
+
+  fn _backward(&self, txn: TxnId) {
+    // FIXME
+    unimplemented!();
+  }
+}
+
 impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   //fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>>, Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
   fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
