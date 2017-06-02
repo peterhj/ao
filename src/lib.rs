@@ -1320,30 +1320,21 @@ pub type ArrayData<A> = AData<A>;
 
 pub struct AData<A> {
   symbol:       Symbol,
-  //clk_horizon:  usize,
-  clock:        Rc<Clock>,
-  //alloc:        Rc<Fn(TxnId, NodeId) -> A>,
+  pub clock:    Rc<Clock>,
+  pub alloc:    Rc<Fn(TxnId, NodeId) -> A>,
   pub val:      TxnVar<A>,
   pub grad:     TxnVar<A>,
-  /*pub r_val:    TxnVar<A>,
-  pub r_grad:   TxnVar<A>,
-  pub val2:     TxnVar<A>,
-  pub grad2:    TxnVar<A>,*/
 }
 
 impl<A> Clone for AData<A> {
   fn clone(&self) -> Self {
     let new_symbol = Symbol::new();
     AData{
-      symbol:       new_symbol,
-      //clk_horizon:  self.clk_horizon,
-      clock:        self.clock.clone(),
-      val:          self.val.dup(new_symbol),
-      grad:         self.grad.dup(new_symbol),
-      /*r_val:        self.r_val.dup(new_symbol),
-      r_grad:       self.r_grad.dup(new_symbol),
-      val2:         self.grad2.dup(new_symbol),
-      grad2:        self.grad2.dup(new_symbol),*/
+      symbol:   new_symbol,
+      clock:    self.clock.clone(),
+      alloc:    self.alloc.clone(),
+      val:      self.val.dup(new_symbol),
+      grad:     self.grad.dup(new_symbol),
     }
   }
 }
@@ -1353,61 +1344,27 @@ impl<A> AVarOutput for AData<A> {
     VarSet::empty()
       .add(self.val.var())
       .add(self.grad.var())
-      /*.add(self.r_val.var())
-      .add(self.r_grad.var())
-      .add(self.val2.var())
-      .add(self.grad2.var())*/
   }
 }
 
 impl<A> AData<A> {
-  pub fn new(/*clk_horizon: usize,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
+  pub fn new(/*clock: Rc<Clock>,*/ alloc: Rc<Fn(TxnId, NodeId) -> A>) -> Self {
     let symbol = Symbol::new();
+    // FIXME(20170601): should pass the clock manually.
     let clock = OP_CFG_STACK.with(|stack| stack.borrow().current().clock);
     AData{
       symbol:       symbol,
-      //clk_horizon:  clk_horizon,
       clock:    clock.clone(),
-      val:      TxnVar::new(symbol, Val,    clock.clone(), alloc.clone()),
-      grad:     TxnVar::new(symbol, Grad,   clock.clone(), alloc.clone()),
-      /*r_val:    TxnVar::new(symbol, RVal,   clk_horizon, alloc.clone()),
-      r_grad:   TxnVar::new(symbol, RGrad,  clk_horizon, alloc.clone()),
-      val2:     TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),
-      grad2:    TxnVar::new(symbol, Grad2,  clk_horizon, alloc.clone()),*/
+      alloc:    alloc.clone(),
+      val:      TxnVar::new(symbol, Val,  clock.clone(), alloc.clone()),
+      grad:     TxnVar::new(symbol, Grad, clock.clone(), alloc.clone()),
     }
   }
 
   pub fn rollover_all(&self, txn: TxnId, vars: &mut VarSet) {
     self.val.rollover(txn, vars);
     self.grad.rollover(txn, vars);
-    /*self.r_val.rollover(txn, vars);
-    self.r_grad.rollover(txn, vars);
-    self.val2.rollover(txn, vars);
-    self.grad2.rollover(txn, vars);*/
   }
-
-  pub fn horizon(&self) -> usize {
-    //self.clk_horizon
-    self.clock.horizon()
-  }
-
-  /*pub fn reset_clock_all(&self) {
-    self.val.reset_clock();
-    self.grad.reset_clock();
-    /*self.r_val.reset_clock();
-    self.r_grad.reset_clock();
-    self.val2.reset_clock();
-    self.grad2.reset_clock();*/
-  }
-
-  pub fn set_clock_all(&self, clk: usize) {
-    self.val.set_clock(clk);
-    self.grad.set_clock(clk);
-    /*self.r_val.set_clock(clk);
-    self.r_grad.set_clock(clk);
-    self.val2.set_clock(clk);
-    self.grad2.set_clock(clk);*/
-  }*/
 }
 
 pub fn master_rng() -> (ChaChaRng, Vec<u32>) {

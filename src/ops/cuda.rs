@@ -4915,8 +4915,12 @@ impl AOp for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, Entrop
 
 impl AVar<()> for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _make_adjoint(&self) -> Rc<AVar<()>> {
-    // FIXME
-    unimplemented!();
+    let x_ = self.x_.clone();
+    let x_adj_ = x_.adjoint();
+    let t_ = self.t_.clone();
+    let prob = self.prob.clone();
+    let (softmax_adj_, _, _) = SoftmaxAdjLoss2::new(x_, x_adj_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
+    softmax_adj_
   }
 }
 
@@ -4928,7 +4932,7 @@ impl AOp for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
     if 1 == self.stack.push(epoch) {
       self.x_._push(epoch, apply);
-      self.target_._push(epoch, apply);
+      self.t_._push(epoch, apply);
       apply(self);
     }
   }
@@ -4936,7 +4940,7 @@ impl AOp for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.target_._pop(epoch, apply);
+      self.t_._pop(epoch, apply);
       self.x_._pop(epoch, apply);
     }
   }
@@ -4946,11 +4950,55 @@ impl AOp for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
   }
 
   fn _forward(&self, txn: TxnId) {
+    let epsilon = self.link.epsilon;
     // FIXME
     unimplemented!();
   }
 
   fn _backward(&self, txn: TxnId) {
+    let epsilon = self.link.epsilon;
+    // FIXME
+    unimplemented!();
+  }
+}
+
+impl AVar<()> for SoftmaxAdjLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+    unimplemented!();
+  }
+}
+
+impl AOp for SoftmaxAdjLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+  fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_adj_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_adj_._pop(epoch, apply);
+    }
+  }
+
+  fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.loss_adj.rollover_all(txn, vars);
+  }
+
+  fn _forward(&self, txn: TxnId) {
+    let epsilon = self.link.epsilon;
+    // FIXME
+    unimplemented!();
+  }
+
+  fn _backward(&self, txn: TxnId) {
+    let epsilon = self.link.epsilon;
     // FIXME
     unimplemented!();
   }
@@ -4991,11 +5039,13 @@ impl AOp for SoftmaxLoss3<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoB
   }
 
   fn _forward(&self, txn: TxnId) {
+    let lr_clip = self.link.lr_clip;
     // FIXME
     unimplemented!();
   }
 
   fn _backward(&self, txn: TxnId) {
+    let lr_clip = self.link.lr_clip;
     // FIXME
     unimplemented!();
   }

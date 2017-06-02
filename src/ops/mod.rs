@@ -140,9 +140,6 @@ pub struct CopyConstant<A> where A: Copy {
 pub struct SrcOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
-  /*horizon:  usize,
-  clock:    bool,*/
-  alloc:    Rc<Fn(TxnId, NodeId) -> A>,
   data:     AData<A>,
   adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
@@ -153,25 +150,11 @@ impl<A> SrcOp<A> {
     Rc::new(SrcOp{
       node_id:  node,
       stack:    OperatorStack::new(node, 0),
-      /*horizon:  horizon,
-      clock:    clock,*/
-      alloc:    alloc.clone(),
       data:     AData::new(/*horizon,*/ alloc),
       adj:      RefCell::new(None),
     })
   }
 }
-
-/*impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
-  default fn _owned_data(&self) -> &AData<A> {
-    &self.data
-  }
-
-  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_src_ = SrcOp::new(self.horizon, self.clock, self.alloc.clone());
-    adj_src_
-  }
-}*/
 
 impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
   default fn _owned_data(&self) -> &AData<A> {
@@ -179,7 +162,7 @@ impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
   }
 
   default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_src_ = SrcOp::new(/*self.horizon, self.clock,*/ self.alloc.clone());
+    let adj_src_ = SrcOp::new(self.data.alloc.clone());
     adj_src_
   }
 
@@ -3340,10 +3323,14 @@ impl<A, Loss> AVar<AData<Loss>> for LstSqLoss<A, Loss> where LstSqLoss<A, Loss>:
   }
 }
 
+#[derive(Clone, Copy)]
 pub struct EntropyLink;
+#[derive(Clone, Copy)]
 pub struct KL2Link{pub epsilon: f64}
+#[derive(Clone, Copy)]
 pub struct NLLLink;
-pub struct LRLink{pub truncate: f64}
+#[derive(Clone, Copy)]
+pub struct LRLink{pub lr_clip: f64}
 
 pub struct KL1LossLink;
 pub struct KL2LossLink;
@@ -3370,7 +3357,6 @@ pub struct SoftmaxSelfLoss<A, Loss, Link> {
 
 impl<A, Loss, Link> SoftmaxSelfLoss<A, Loss, Link>
 where A: 'static, Loss: 'static, Link: 'static,
-      //SoftmaxSelfLoss<A, Loss, Link>: AOp,
       Self: AOp,
 {
   pub fn new(x_: Rc<AVar<AData<A>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
@@ -3396,7 +3382,6 @@ where A: 'static, Loss: 'static, Link: 'static,
 
 impl<A, Loss, Link> AVar<()> for SoftmaxSelfLoss<A, Loss, Link>
 where A: 'static, Loss: 'static, Link: 'static,
-      //SoftmaxSelfLoss<A, Loss, Link>: AOp,
       Self: AOp,
 {
   default fn _owned_data(&self) -> &() {
@@ -3419,37 +3404,36 @@ where A: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-pub struct SoftmaxLoss2<A, Target, Loss, Link> {
+pub struct SoftmaxLoss2<A, T, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
-  target_:  Rc<AVar<AData<Target>>>,
+  t_:  Rc<AVar<AData<T>>>,
   x:        AData<A>,
-  target:   AData<Target>,
+  t:   AData<T>,
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
   adj:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
-impl<A, Target, Loss, Link> SoftmaxLoss2<A, Target, Loss, Link>
-where A: 'static, Target: 'static, Loss: 'static, Link: 'static,
-      //SoftmaxLoss2<A, Target, Loss, Link>: AOp,
+impl<A, T, Loss, Link> SoftmaxLoss2<A, T, Loss, Link>
+where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, target_: Rc<AVar<AData<Target>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
     let node = NodeId::new();
     let x = x_.data();
-    let target = target_.data();
+    let t = t_.data();
     let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
     let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
     let softmax_ = Rc::new(SoftmaxLoss2{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
       x_:       x_,
-      target_:  target_,
+      t_:  t_,
       x:        x,
-      target:   target,
+      t:   t,
       prob:     prob.clone(),
       loss:     loss.clone(),
       link:     link,
@@ -3461,9 +3445,80 @@ where A: 'static, Target: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-impl<A, Target, Loss, Link> AVar<()> for SoftmaxLoss2<A, Target, Loss, Link>
-where A: 'static, Target: 'static, Loss: 'static, Link: 'static,
-      //SoftmaxLoss2<A, Target, Loss, Link>: AOp,
+impl<A, T, Loss, Link> AVar<()> for SoftmaxLoss2<A, T, Loss, Link>
+where A: 'static, T: 'static, Loss: 'static, Link: 'static,
+      Self: AOp,
+{
+  default fn _owned_data(&self) -> &() {
+    unreachable!();
+  }
+
+  default fn data(&self) -> () {
+    ()
+  }
+
+  default fn vars(&self) -> VarSet {
+    var_set()
+  }
+
+  default fn adjoint(&self) -> Rc<AVar<()>> {
+    if self.adj.borrow().is_none() {
+      *self.adj.borrow_mut() = Some(self._make_adjoint());
+    }
+    self.adj.borrow().as_ref().unwrap().clone()
+  }
+}
+
+pub struct SoftmaxAdjLoss2<A, T, Loss, Link> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<AVar<AData<A>>>,
+  x_adj_:   Rc<AVar<AData<A>>>,
+  t_:       Rc<AVar<AData<T>>>,
+  x:        AData<A>,
+  x_adj:    AData<A>,
+  t:        AData<T>,
+  prob:     AData<A>,
+  prob_adj: AData<A>,
+  loss_adj: AData<Loss>,
+  link:     Link,
+  adj:      RefCell<Option<Rc<AVar<()>>>>,
+}
+
+impl<A, T, Loss, Link> SoftmaxAdjLoss2<A, T, Loss, Link>
+where A: 'static, T: 'static, Loss: 'static, Link: 'static,
+      Self: AOp,
+{
+  pub fn new(x_: Rc<AVar<AData<A>>>, x_adj_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, prob: AData<A>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
+    let node = NodeId::new();
+    let x = x_.data();
+    let x_adj = x_adj_.data();
+    let t = t_.data();
+    let prob_adj = AData::new(/*clk_horizon,*/ prob_alloc.clone());
+    let loss_adj = AData::new(/*clk_horizon,*/ loss_alloc.clone());
+    let softmax_adj_ = Rc::new(SoftmaxAdjLoss2{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 2),
+      x_:       x_,
+      x_adj_:   x_adj_,
+      t_:       t_,
+      x:        x,
+      x_adj:    x_adj,
+      t:        t,
+      prob:     prob,
+      prob_adj: prob_adj.clone(),
+      loss_adj: loss_adj.clone(),
+      link:     link,
+      adj:      RefCell::new(None),
+    });
+    let prob_adj_ = PassOp::new(Some(AOp::from(softmax_adj_.clone())), prob_adj);
+    let loss_adj_ = PassOp::new(Some(AOp::from(softmax_adj_.clone())), loss_adj);
+    (softmax_adj_, prob_adj_, loss_adj_)
+  }
+}
+
+impl<A, T, Loss, Link> AVar<()> for SoftmaxAdjLoss2<A, T, Loss, Link>
+where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
   default fn _owned_data(&self) -> &() {
@@ -3503,7 +3558,6 @@ pub struct SoftmaxLoss3<A, T1, T2, Loss, Link> {
 
 impl<A, T1, T2, Loss, Link> SoftmaxLoss3<A, T1, T2, Loss, Link>
 where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
-      //SoftmaxLoss3<A, T1, T2, Loss, Link>: AOp,
       Self: AOp,
 {
   pub fn new(x_: Rc<AVar<AData<A>>>, t1_: Rc<AVar<AData<T1>>>, t2_: Rc<AVar<AData<T2>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<A>>, Rc<PassOp<Loss>>) {
@@ -3535,7 +3589,6 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
 
 impl<A, T1, T2, Loss, Link> AVar<()> for SoftmaxLoss3<A, T1, T2, Loss, Link>
 where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
-      //SoftmaxLoss3<A, T1, T2, Loss, Link>: AOp,
       Self: AOp,
 {
   default fn _owned_data(&self) -> &() {
