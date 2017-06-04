@@ -3323,6 +3323,15 @@ impl<A, Loss> AVar<AData<Loss>> for LstSqLoss<A, Loss> where LstSqLoss<A, Loss>:
   }
 }
 
+pub struct SoftmaxOp<A> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<AVar<AData<A>>>,
+  x:        AData<A>,
+  prob:     AData<A>,
+  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+}
+
 #[derive(Clone, Copy)]
 pub struct EntropyLink;
 #[derive(Clone, Copy)]
@@ -3349,6 +3358,7 @@ pub struct SoftmaxSelfLoss<A, Loss, Link> {
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
   x:        AData<A>,
+  //prob_:    Rc<AVar<AData<A>>>,
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
@@ -3411,6 +3421,7 @@ pub struct SoftmaxLoss2<A, T, Loss, Link> {
   t_:  Rc<AVar<AData<T>>>,
   x:        AData<A>,
   t:   AData<T>,
+  //prob_:    Rc<AVar<AData<A>>>,
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
@@ -3478,6 +3489,7 @@ pub struct SoftmaxAdjLoss2<A, T, Loss, Link> {
   x:        AData<A>,
   x_adj:    AData<A>,
   t:        AData<T>,
+  //prob_:    Rc<AVar<AData<A>>>,
   prob:     AData<A>,
   prob_adj: AData<A>,
   loss_adj: AData<Loss>,
@@ -3550,6 +3562,7 @@ pub struct SoftmaxLoss3<A, T1, T2, Loss, Link> {
   x:        AData<A>,
   t1:       AData<T1>,
   t2:       AData<T2>,
+  //prob_:    Rc<AVar<AData<A>>>,
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
