@@ -406,7 +406,7 @@ impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
   }*/
 }
 
-impl AOp for PassOp<DeviceIoBatch<f32>> {
+impl<Pre> AOp for PassOp<Pre, DeviceIoBatch<f32>> where Pre: AVarOutput {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
@@ -471,7 +471,7 @@ impl AOp for PassOp<DeviceIoBatch<f32>> {
   }
 }
 
-impl AOp for PassOp<DeviceBatchArray1d<f32>> {
+impl<Pre> AOp for PassOp<Pre, DeviceBatchArray1d<f32>> where Pre: AVarOutput {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
@@ -551,7 +551,7 @@ impl AOp for PassOp<DeviceBatchArray1d<f32>> {
   }
 }
 
-impl AOp for PassOp<DeviceArray1d<f32>> {
+impl<Pre> AOp for PassOp<Pre, DeviceArray1d<f32>> where Pre: AVarOutput {
   fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
@@ -5053,7 +5053,7 @@ impl AOp for SoftmaxLoss3<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoB
 
 impl<Op> SoftmaxNLLLossExt<Op, DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   //fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<SoftmaxLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, NLLLossLink>>, Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
-  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<PassOp<DeviceBatchArray1d<f32>>>, Rc<PassOp<DeviceIoBatch<f32>>>) {
+  fn softmax_nll_loss(x_: Rc<Op>, target_: Rc<AVar<AData<DeviceIoBatch<u32>>>>) -> (Rc<PassOp<(), DeviceBatchArray1d<f32>>>, Rc<PassOp<(), DeviceIoBatch<f32>>>) {
     //let clk_horizon = x_.data().horizon();
     let (_, prob, loss) = SoftmaxLoss::new(x_.clone(), Some(target_.clone()), NLLLossLink, /*clk_horizon,*/ {
       let x = x_.data();
