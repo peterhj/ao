@@ -49,7 +49,7 @@ impl IoBuf for DeviceMem<f32> {
       dst.as_mut().copy(reader.as_ref().slice(offset, offset + buf_len), DeviceStream::implicit().conn());
       offset += buf_len;
     } else {
-      panic!("store: unimplemented reader type: {:?}", reader);
+      panic!("load: unimplemented reader type: {:?}", reader);
     }
     offset
   }
@@ -70,6 +70,89 @@ impl IoBuf for DeviceMem<f32> {
       panic!("store: unimplemented writer type: {:?}", writer);
     }
     offset
+  }
+}
+
+impl<T> IoBuf for DeviceIoBatch<T> where T: 'static + Copy {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    if reader.downcast_mut::<Vec<T>>().is_some() {
+      let src_buf = reader.downcast_mut::<Vec<T>>().unwrap();
+      let batch_sz = src_buf.len();
+      dst.set_batch_size(batch_sz);
+      dst.load(&*src_buf, DeviceStream::implicit().conn());
+      offset += batch_sz;
+    } else {
+      panic!("load: unimplemented reader type: {:?}", reader);
+    }
+    offset
+  }
+
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    if writer.downcast_mut::<Vec<T>>().is_some() {
+      let dst_buf = writer.downcast_mut::<Vec<T>>().unwrap();
+      let batch_sz = src.batch_size();
+      assert_eq!(batch_sz, dst_buf.len());
+      src.as_ref().store_sync(&mut *dst_buf, DeviceStream::implicit().conn());
+      offset += batch_sz;
+    } else {
+      panic!("store: unimplemented writer type: {:?}", writer);
+    }
+    offset
+  }
+}
+
+impl IoBuf for DeviceBatchIoMem<u8> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    if reader.downcast_mut::<NullIo>().is_some() {
+      unimplemented!();
+    } else if reader.downcast_mut::<BatchIo<ZeroIo>>().is_some() {
+      //let batch_sz = dst.batch_capacity().unwrap_or(dst.batch_size());
+      let reader = reader.downcast_mut::<BatchIo<ZeroIo>>().unwrap();
+      let batch_sz = reader.batch_sz;
+      dst.set_batch_size(batch_sz, &*DeviceStream::implicit());
+      for idx in 0 .. batch_sz {
+        dst[idx].as_mut().set_constant(0, DeviceStream::implicit().conn());
+      }
+      offset += dst.stride() * dst.batch_size();
+    } else if reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().is_some() {
+      let src_bufs = reader.downcast_mut::<Vec<Arc<Deref<Target=[u8]>>>>().unwrap();
+      let batch_sz = src_bufs.len();
+      dst.set_batch_size(batch_sz, &*DeviceStream::implicit());
+      for idx in 0 .. batch_sz {
+        dst.load_one(idx, &**src_bufs[idx], DeviceStream::implicit().conn());
+      }
+      offset += dst.stride() * dst.batch_size();
+      /*let mut tmp = Vec::with_capacity(dst.stride());
+      tmp.resize(dst.stride(), 0);
+      dst[0].as_ref().store_sync(&mut tmp, DeviceStream::implicit().conn());
+      println!("DEBUG: DeviceBatchIoMem input: {:?} readback: {:?}", &src_bufs[0][290 .. 295], &tmp[290 .. 295]);*/
+    } else if reader.downcast_mut::<Vec<Arc<Extract<[u8]>>>>().is_some() {
+      let src_bufs = reader.downcast_mut::<Vec<Arc<Extract<[u8]>>>>().unwrap();
+      let batch_sz = src_bufs.len();
+      dst.set_batch_size(batch_sz, &*DeviceStream::implicit());
+      for idx in 0 .. batch_sz {
+        dst.extract_load_one(idx, &*src_bufs[idx], DeviceStream::implicit().conn());
+      }
+      offset += dst.stride() * dst.batch_size();
+    } else if reader.downcast_mut::<Vec<SharedGPUBlockKV<u8>>>().is_some() {
+      let src_bufs = reader.downcast_mut::<Vec<SharedGPUBlockKV<u8>>>().unwrap();
+      let batch_sz = src_bufs.len();
+      dst.set_batch_size(batch_sz, &*DeviceStream::implicit());
+      for idx in 0 .. batch_sz {
+        let src_buf = &src_bufs[idx];
+        let cache_buf = src_buf.buffer.lock().unwrap();
+        dst.copy_one(idx, cache_buf.as_ref().slice(src_buf.offset, src_buf.offset + src_buf.size), DeviceStream::implicit().conn());
+      }
+      offset += dst.stride() * dst.batch_size();
+    } else {
+      panic!("load: unimplemented reader type: {:?}", reader);
+    }
+    offset
+  }
+
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    // FIXME
+    unimplemented!();
   }
 }
 
@@ -125,7 +208,7 @@ impl IoBuf for DeviceArray2d<f32> {
       dst.as_view_mut().flatten_mut().copy(reader.as_ref().slice(offset, offset + buf_len).flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
     } else {
-      panic!("store: unimplemented reader type: {:?}", reader);
+      panic!("load: unimplemented reader type: {:?}", reader);
     }
     offset
   }
@@ -163,7 +246,7 @@ impl IoBuf for DeviceArray4d<f32> {
       dst.as_view_mut().flatten_mut().copy(reader.as_ref().slice(offset, offset + buf_len).flatten(), DeviceStream::implicit().conn());
       offset += buf_len;
     } else {
-      panic!("store: unimplemented reader type: {:?}", reader);
+      panic!("load: unimplemented reader type: {:?}", reader);
     }
     offset
   }
@@ -227,7 +310,7 @@ impl<T> AOp for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
           .load(&*src_buf, DeviceStream::implicit().conn());
         offset += batch_sz;
       } else {
-        panic!("store: unimplemented reader type: {:?}", reader);
+        panic!("load: unimplemented reader type: {:?}", reader);
       }
     }
     offset
@@ -4872,8 +4955,9 @@ impl AOp for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> {
   }
 }
 
-impl AVar<()> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
-  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+//impl AVar<()> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
+impl AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
+  fn _make_adjoint(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
     // FIXME
     unimplemented!();
   }
@@ -4913,18 +4997,18 @@ impl AOp for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, Entrop
   }
 }
 
-impl AVar<()> for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+impl AVar<()> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _make_adjoint(&self) -> Rc<AVar<()>> {
     let x_ = self.x_.clone();
     let x_adj_ = x_.adjoint();
     let t_ = self.t_.clone();
     let prob = self.prob.clone();
-    let (softmax_adj_, _, _) = SoftmaxAdjLoss2::new(x_, x_adj_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
+    let (softmax_adj_, _, _) = SoftmaxAdj2Loss::new(x_, x_adj_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
     softmax_adj_
   }
 }
 
-impl AOp for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+impl AOp for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -4962,13 +5046,13 @@ impl AOp for SoftmaxLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
   }
 }
 
-impl AVar<()> for SoftmaxAdjLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+impl AVar<()> for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _make_adjoint(&self) -> Rc<AVar<()>> {
     unimplemented!();
   }
 }
 
-impl AOp for SoftmaxAdjLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+impl AOp for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -5004,14 +5088,14 @@ impl AOp for SoftmaxAdjLoss2<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, D
   }
 }
 
-impl AVar<()> for SoftmaxLoss3<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
+impl AVar<()> for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
   fn _make_adjoint(&self) -> Rc<AVar<()>> {
     // FIXME
     unimplemented!();
   }
 }
 
-impl AOp for SoftmaxLoss3<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
+impl AOp for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

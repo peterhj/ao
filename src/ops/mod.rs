@@ -565,6 +565,339 @@ impl AOp for SrcOp<Array4d<f32>> {
   }*/
 }
 
+pub fn noop<A, Op>(x_: Rc<Op>) -> Rc<NoOp<A>> where Op: 'static + AVar<AData<A>> {
+  NoOp::new(AVar::from(x_))
+}
+
+pub struct NoOp<A> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<AVar<AData<A>>>,
+  data:     AData<A>,
+  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+}
+
+impl<A> NoOp<A> {
+  pub fn new(x_: Rc<AVar<AData<A>>>) -> Rc<Self> {
+    let node = NodeId::new();
+    let data = x_.data();
+    Rc::new(NoOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:       x_,
+      data:     data,
+      adj:      RefCell::new(None),
+    })
+  }
+}
+
+impl<A> AVar<AData<A>> for NoOp<A> where A: 'static {
+  default fn _owned_data(&self) -> &AData<A> {
+    &self.data
+  }
+
+  default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
+    let adj_op = NoOp::new(self.x_.adjoint());
+    adj_op
+  }
+
+  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
+    if self.adj.borrow().is_none() {
+      *self.adj.borrow_mut() = Some(self._make_adjoint());
+    }
+    self.adj.borrow().as_ref().unwrap().clone()
+  }
+}
+
+impl<A> AOp for NoOp<A> where A: 'static {
+  default fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  default fn _forward(&self, _txn: TxnId) {
+  }
+
+  default fn _backward(&self, _txn: TxnId) {
+  }
+}
+
+pub fn io<A, Op>(x_: Rc<Op>) -> Rc<IoOp<A>> where Op: 'static + AVar<AData<A>> {
+  IoOp::new(AVar::from(x_))
+}
+
+pub struct IoOp<A> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<AVar<AData<A>>>,
+  data:     AData<A>,
+  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+}
+
+impl<A> IoOp<A> {
+  pub fn new(x_: Rc<AVar<AData<A>>>) -> Rc<Self> {
+    let node = NodeId::new();
+    let data = x_.data();
+    Rc::new(IoOp{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:       x_,
+      data:     data,
+      adj:      RefCell::new(None),
+    })
+  }
+}
+
+impl<A> AVar<AData<A>> for IoOp<A> where A: 'static, Self: AOp {
+  default fn _owned_data(&self) -> &AData<A> {
+    &self.data
+  }
+
+  default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
+    let adj_op = IoOp::new(self.x_.adjoint());
+    adj_op
+  }
+
+  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
+    if self.adj.borrow().is_none() {
+      *self.adj.borrow_mut() = Some(self._make_adjoint());
+    }
+    self.adj.borrow().as_ref().unwrap().clone()
+  }
+}
+
+impl<A> AOp for IoOp<A> where A: 'static + IoBuf {
+  default fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      assert!(self.data.val.overwrite(txn, node));
+      let mut val = self.data.val.get_excl(txn, node);
+      offset = IoBuf::load(&mut *val, offset, reader);
+    }
+    offset
+  }
+
+  default fn _load_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      assert!(self.data.grad.overwrite(txn, node));
+      let mut grad = self.data.grad.get_excl(txn, node);
+      offset = IoBuf::load(&mut *grad, offset, reader);
+    }
+    offset
+  }
+
+  default fn _store_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.val.var()) {
+      let val = self.data.val.get(txn, node);
+      offset = IoBuf::store(&*val, offset, writer);
+    }
+    offset
+  }
+
+  default fn _store_grad(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, writer: &mut Any) -> usize {
+    let node = self._id();
+    if vars.mask(self.data.grad.var()) {
+      let grad = self.data.grad.get(txn, node);
+      offset = IoBuf::store(&*grad, offset, writer);
+    }
+    offset
+  }
+}
+
+impl<A> AOp for IoOp<A> where A: 'static {
+  default fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  default fn _forward(&self, _txn: TxnId) {
+  }
+
+  default fn _backward(&self, _txn: TxnId) {
+  }
+}
+
+pub fn unpack2<A1, A2>(x_: Rc<AVar<(A1, A2)>>) -> (Rc<Unpack2Out1Op<A1, A2>>, Rc<Unpack2Out2Op<A1, A2>>) where A1: AVarOutput, A2: AVarOutput {
+  let empty_adj = Rc::new(RefCell::new(None));
+  (Unpack2Out1Op::new(x_.clone(), empty_adj.clone()), Unpack2Out2Op::new(x_.clone(), empty_adj.clone()))
+}
+
+pub struct Unpack2Out1Op<A1, A2> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<AVar<(A1, A2)>>,
+  data:     A1,
+  adj:      Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>,
+}
+
+impl<A1, A2> Unpack2Out1Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
+  pub fn new(x_: Rc<AVar<(A1, A2)>>, empty_adj: Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>) -> Rc<Self> {
+    let node = NodeId::new();
+    let data = x_.data().0;
+    Rc::new(Unpack2Out1Op{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:       x_,
+      data:     data,
+      adj:      empty_adj,
+    })
+  }
+}
+
+impl<A1, A2> AVar<A1> for Unpack2Out1Op<A1, A2> where A1: 'static + AVarOutput, A2: 'static + AVarOutput {
+  default fn _owned_data(&self) -> &A1 {
+    &self.data
+  }
+
+  default fn _make_adjoint(&self) -> Rc<AVar<A1>> {
+    unreachable!();
+  }
+
+  default fn adjoint(&self) -> Rc<AVar<A1>> {
+    if self.adj.borrow().is_none() {
+      let adj = unpack2(self.x_.adjoint());
+      *self.adj.borrow_mut() = Some((AVar::from(adj.0), AVar::from(adj.1)));
+    }
+    self.adj.borrow().as_ref().unwrap().0.clone()
+  }
+}
+
+impl<A1, A2> AOp for Unpack2Out1Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
+  default fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  default fn _forward(&self, _txn: TxnId) {
+  }
+
+  default fn _backward(&self, _txn: TxnId) {
+  }
+}
+
+pub struct Unpack2Out2Op<A1, A2> {
+  node_id:  NodeId,
+  stack:    OperatorStack,
+  x_:       Rc<AVar<(A1, A2)>>,
+  data:     A2,
+  adj:      Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>,
+}
+
+impl<A1, A2> Unpack2Out2Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
+  pub fn new(x_: Rc<AVar<(A1, A2)>>, empty_adj: Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>) -> Rc<Self> {
+    let node = NodeId::new();
+    let data = x_.data().1;
+    Rc::new(Unpack2Out2Op{
+      node_id:  node,
+      stack:    OperatorStack::new(node, 1),
+      x_:       x_,
+      data:     data,
+      adj:      empty_adj,
+    })
+  }
+}
+
+impl<A1, A2> AVar<A2> for Unpack2Out2Op<A1, A2> where A1: 'static + AVarOutput, A2: 'static + AVarOutput {
+  default fn _owned_data(&self) -> &A2 {
+    &self.data
+  }
+
+  default fn _make_adjoint(&self) -> Rc<AVar<A2>> {
+    unreachable!();
+  }
+
+  default fn adjoint(&self) -> Rc<AVar<A2>> {
+    if self.adj.borrow().is_none() {
+      let adj = unpack2(self.x_.adjoint());
+      *self.adj.borrow_mut() = Some((AVar::from(adj.0), AVar::from(adj.1)));
+    }
+    self.adj.borrow().as_ref().unwrap().1.clone()
+  }
+}
+
+impl<A1, A2> AOp for Unpack2Out2Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
+  default fn _id(&self) -> NodeId {
+    self.node_id
+  }
+
+  default fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if 1 == self.stack.push(epoch) {
+      self.x_._push(epoch, apply);
+      apply(self);
+    }
+  }
+
+  default fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
+    if self.stack.degree(epoch) == self.stack.pop(epoch) {
+      apply(self);
+      self.x_._pop(epoch, apply);
+    }
+  }
+
+  default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
+    self.data.rollover_all(txn, vars);
+  }
+
+  default fn _forward(&self, _txn: TxnId) {
+  }
+
+  default fn _backward(&self, _txn: TxnId) {
+  }
+}
+
 //pub fn pass<A, Op>(x_: Rc<Op>) -> Rc<PassOp<A>> where Op: 'static + AVar<AData<A>> {
 pub fn pass<A, Op>(x_: Rc<Op>) -> Rc<PassOp<AData<A>, A>> where Op: 'static + AVar<AData<A>> {
   let data = x_.data();
@@ -638,10 +971,10 @@ impl<Pre, A> AOp for PassOp<Pre, A> where Pre: 'static + AVarOutput, A: 'static 
   }
 
   default fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
-    // Do nothing, `data` belongs to `x`.
+    self.data.rollover_all(txn, vars);
   }
 
-  default fn _forward(&self, txn: TxnId) {
+  default fn _forward(&self, _txn: TxnId) {
   }
 
   default fn _backward(&self, _txn: TxnId) {
@@ -708,7 +1041,7 @@ impl<A> AOp for NoPassOp<A> {
   }
 }
 
-pub struct IoOp<A> {
+/*pub struct IoOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
   //x_:       Rc<AVar<AData<A>>>,
@@ -776,7 +1109,7 @@ impl<A> AOp for IoOp<A> {
 
   default fn _backward(&self, _txn: TxnId) {
   }
-}
+}*/
 
 pub struct InitializeOp<A, Init> {
   node_id:  NodeId,
@@ -3406,14 +3739,14 @@ pub struct SoftmaxSelfLoss<A, Loss, Link> {
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
-  adj:      RefCell<Option<Rc<AVar<()>>>>,
+  adj:      RefCell<Option<Rc<AVar<(AData<A>, AData<Loss>)>>>>,
 }
 
 impl<A, Loss, Link> SoftmaxSelfLoss<A, Loss, Link>
 where A: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<(), A>>, Rc<PassOp<(), Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
@@ -3423,18 +3756,21 @@ where A: 'static, Loss: 'static, Link: 'static,
       stack:    OperatorStack::new(node, 1),
       x_:       x_,
       x:        x,
-      prob:     prob.clone(),
-      loss:     loss.clone(),
+      /*prob:     prob.clone(),
+      loss:     loss.clone(),*/
+      prob:     prob,
+      loss:     loss,
       link:     link,
       adj:      RefCell::new(None),
     });
-    let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
+    /*let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
     let loss_ = PassOp::new(Some(AVar::from(softmax_.clone())), loss);
-    (softmax_, prob_, loss_)
+    (softmax_, prob_, loss_)*/
+    softmax_
   }
 }
 
-impl<A, Loss, Link> AVar<()> for SoftmaxSelfLoss<A, Loss, Link>
+/*impl<A, Loss, Link> AVar<()> for SoftmaxSelfLoss<A, Loss, Link>
 where A: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3456,9 +3792,33 @@ where A: 'static, Loss: 'static, Link: 'static,
     }
     self.adj.borrow().as_ref().unwrap().clone()
   }
+}*/
+
+impl<A, Loss, Link> AVar<(AData<A>, AData<Loss>)> for SoftmaxSelfLoss<A, Loss, Link>
+where A: 'static, Loss: 'static, Link: 'static,
+      Self: AOp,
+{
+  default fn _owned_data(&self) -> &(AData<A>, AData<Loss>) {
+    unreachable!();
+  }
+
+  default fn data(&self) -> (AData<A>, AData<Loss>) {
+    (self.prob.clone(), self.loss.clone())
+  }
+
+  default fn vars(&self) -> VarSet {
+    self.prob._vars().union(self.loss._vars())
+  }
+
+  default fn adjoint(&self) -> Rc<AVar<(AData<A>, AData<Loss>)>> {
+    if self.adj.borrow().is_none() {
+      *self.adj.borrow_mut() = Some(self._make_adjoint());
+    }
+    self.adj.borrow().as_ref().unwrap().clone()
+  }
 }
 
-pub struct SoftmaxLoss2<A, T, Loss, Link> {
+pub struct Softmax2Loss<A, T, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
@@ -3472,7 +3832,7 @@ pub struct SoftmaxLoss2<A, T, Loss, Link> {
   adj:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
-impl<A, T, Loss, Link> SoftmaxLoss2<A, T, Loss, Link>
+impl<A, T, Loss, Link> Softmax2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3482,7 +3842,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     let t = t_.data();
     let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
     let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
-    let softmax_ = Rc::new(SoftmaxLoss2{
+    let softmax_ = Rc::new(Softmax2Loss{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
       x_:       x_,
@@ -3500,7 +3860,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-impl<A, T, Loss, Link> AVar<()> for SoftmaxLoss2<A, T, Loss, Link>
+impl<A, T, Loss, Link> AVar<()> for Softmax2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3524,7 +3884,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-pub struct SoftmaxAdjLoss2<A, T, Loss, Link> {
+pub struct SoftmaxAdj2Loss<A, T, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
@@ -3541,7 +3901,7 @@ pub struct SoftmaxAdjLoss2<A, T, Loss, Link> {
   adj:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
-impl<A, T, Loss, Link> SoftmaxAdjLoss2<A, T, Loss, Link>
+impl<A, T, Loss, Link> SoftmaxAdj2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3552,7 +3912,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     let t = t_.data();
     let prob_adj = AData::new(/*clk_horizon,*/ prob_alloc.clone());
     let loss_adj = AData::new(/*clk_horizon,*/ loss_alloc.clone());
-    let softmax_adj_ = Rc::new(SoftmaxAdjLoss2{
+    let softmax_adj_ = Rc::new(SoftmaxAdj2Loss{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
       x_:       x_,
@@ -3573,7 +3933,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-impl<A, T, Loss, Link> AVar<()> for SoftmaxAdjLoss2<A, T, Loss, Link>
+impl<A, T, Loss, Link> AVar<()> for SoftmaxAdj2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3597,7 +3957,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-pub struct SoftmaxLoss3<A, T1, T2, Loss, Link> {
+pub struct Softmax3Loss<A, T1, T2, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
@@ -3613,7 +3973,7 @@ pub struct SoftmaxLoss3<A, T1, T2, Loss, Link> {
   adj:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
-impl<A, T1, T2, Loss, Link> SoftmaxLoss3<A, T1, T2, Loss, Link>
+impl<A, T1, T2, Loss, Link> Softmax3Loss<A, T1, T2, Loss, Link>
 where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3624,7 +3984,7 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
     let t2 = t2_.data();
     let prob = AData::new(/*clk_horizon,*/ prob_alloc.clone());
     let loss = AData::new(/*clk_horizon,*/ loss_alloc.clone());
-    let softmax_ = Rc::new(SoftmaxLoss3{
+    let softmax_ = Rc::new(Softmax3Loss{
       node_id:  node,
       stack:    OperatorStack::new(node, 3),
       x_:       x_,
@@ -3644,7 +4004,7 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-impl<A, T1, T2, Loss, Link> AVar<()> for SoftmaxLoss3<A, T1, T2, Loss, Link>
+impl<A, T1, T2, Loss, Link> AVar<()> for Softmax3Loss<A, T1, T2, Loss, Link>
 where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {

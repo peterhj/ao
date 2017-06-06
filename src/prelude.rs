@@ -24,7 +24,7 @@ pub use super::{
   GradientSinkExt,
   GaussNewtonSinkExt,
   HessianSinkExt,
-  NullIo, ZeroIo,
+  NullIo, ZeroIo, BatchIo,
   //SerialIoBuf, ZeroIo, CursorIoBufExt, CursorIoBuf,
   ArrayStorage, BatchArrayStorage,
   TxnCopyVar, TxnVar,
