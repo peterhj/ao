@@ -1295,6 +1295,20 @@ impl AOp for BranchOp<Rc<CopyConstant<bool>>, Rc<AVar<AData<DeviceArray1d<f32>>>
   }
 }
 
+impl SpecialMapExt<DeviceBatchArray1d<f32>> for Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+  fn rect(&self) -> Rc<MapOp<DeviceBatchArray1d<f32>, RectMapKernel>> {
+    //let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        let x_dim = x.val.get(txn, node).dim();
+        DeviceBatchArray1d::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl<Op> SpecialMapExt</*f32,*/ DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<f32>>> {
   fn rect(&self) -> Rc<MapOp<DeviceBatchArray1d<f32>, RectMapKernel>> {
     //let clk_horizon = self.data().horizon();
@@ -1309,17 +1323,20 @@ impl<Op> SpecialMapExt</*f32,*/ DeviceBatchArray1d<f32>> for Rc<Op> where Op: 's
   }
 }
 
-impl<Op> SpecialMapExt<DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
-  fn rect(&self) -> Rc<MapOp<DeviceBatchArray3d<f32>, RectMapKernel>> {
-    //let clk_horizon = self.data().horizon();
-    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
-      let x = self.data();
-      Rc::new(move |txn, node| {
-        let batch_cap = x.val.get(txn, node).batch_capacity();
-        let x_dim = x.val.get(txn, node).dim();
-        DeviceBatchArray3d::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
-      })
-    })
+impl AVar<AData<DeviceBatchArray1d<f32>>> for MapOp<DeviceBatchArray1d<f32>, RectMapKernel> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray1d<f32>> {
+    &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    self.x_.tangent().rect()
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -1453,6 +1470,51 @@ impl AOp for MapOp<DeviceBatchArray1d<f32>, RectMapKernel> {
       self.x.grad2.get_mut(txn, node).as_view_mut().post(&conn);
     }
   }*/
+}
+
+impl SpecialMapExt<DeviceBatchArray3d<f32>> for Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+  fn rect(&self) -> Rc<MapOp<DeviceBatchArray3d<f32>, RectMapKernel>> {
+    //let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        let x_dim = x.val.get(txn, node).dim();
+        DeviceBatchArray3d::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl<Op> SpecialMapExt<DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
+  fn rect(&self) -> Rc<MapOp<DeviceBatchArray3d<f32>, RectMapKernel>> {
+    //let clk_horizon = self.data().horizon();
+    MapOp::new(RectMapKernel, self.clone(), /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        let x_dim = x.val.get(txn, node).dim();
+        DeviceBatchArray3d::zeros(x_dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
+impl AVar<AData<DeviceBatchArray3d<f32>>> for MapOp<DeviceBatchArray3d<f32>, RectMapKernel> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
+    &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    self.x_.tangent().rect()
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
+  }
 }
 
 impl AOp for MapOp<DeviceBatchArray3d<f32>, RectMapKernel> {
@@ -2945,6 +3007,10 @@ impl<Op> MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>
 }
 
 impl AVar<AData<DeviceBatchArray1d<f32>>> for LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray1d<f32>> {
+    &self.y
+  }
+
   fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
     let tng_a_ = self.a_.tangent();
     let tng_b_ = self.b_.as_ref().map(|b_| b_.tangent());
@@ -2954,6 +3020,13 @@ impl AVar<AData<DeviceBatchArray1d<f32>>> for LinearOp<DeviceArray2d<f32>, Devic
       Some(tng_b_)  => self.a_.mult(tng_x_).add(tng_a_.mult_add(self.x_.clone(), tng_b_)),
     };
     tng_y_
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3937,6 +4010,10 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
 }
 
 impl AVar<AData<DeviceBatchArray3d<f32>>> for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
+    &self.y
+  }
+
   fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
     let shape = self.shape.clone();
     let tng_a_ = self.a_.tangent();
@@ -3947,6 +4024,13 @@ impl AVar<AData<DeviceBatchArray3d<f32>>> for ConvOp<(usize, usize), DeviceArray
       Some(tng_b_)  => self.a_.conv(shape.clone(), tng_x_).add(tng_a_.conv_add(shape.clone(), self.x_.clone(), tng_b_)),
     };
     tng_y_
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 

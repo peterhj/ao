@@ -1416,6 +1416,7 @@ pub struct MapOp<A, MapF> {
   x:    AData<A>,
   y:    AData<A>,
   kernel:   MapF,
+  tng_: RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 impl<A, MapF> MapOp<A, MapF> {
@@ -1429,6 +1430,7 @@ impl<A, MapF> MapOp<A, MapF> {
       x:    x,
       y:    AData::new(/*clk_horizon,*/ alloc),
       kernel:   kernel,
+      tng_: RefCell::new(None),
     })
   }
 }
