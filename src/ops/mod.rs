@@ -3684,7 +3684,9 @@ impl GaussNewtonSinkExt for HessianSink<Batch<f32>> {
     {
       let node = self.node;
       if self.x.grad.overwrite(txn, node) {
-        let batch_sz = self.x_tng.val.get(txn, node).batch_size();
+        let batch_sz = self.x.val.get(txn, node).batch_size();
+        assert_eq!(batch_sz, self.x_tng.val.get(txn, node).batch_size());
+        self.x.grad.get_excl(txn, node).set_batch_size(batch_sz, 0.0);
         for idx in 0 .. batch_sz {
           self.x.grad.get_excl(txn, node)[idx] = self.x_tng.val.get(txn, node)[idx];
         }
