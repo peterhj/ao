@@ -119,8 +119,8 @@ impl IoBuf for Array4d<f32> {
   }
 }
 
-pub fn src<A, F>(cons: F) -> Rc<SrcOp<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
-  SrcOp::new(Rc::new(cons))
+pub fn src<A, F>(cons: F) -> Rc<IoOp<A>> where A: 'static, F: 'static + Fn(TxnId, NodeId) -> A, SrcOp<A>: AOp {
+  io(SrcOp::new(Rc::new(cons)))
 }
 
 /*pub fn sequential_src<A, F>(horizon: usize, cons: F) -> Rc<SrcOp<A>> where F: 'static + Fn(TxnId, NodeId) -> A {
@@ -639,8 +639,24 @@ impl<A> AOp for NoOp<A> where A: 'static {
   }
 }
 
-pub fn io<A, Op>(x_: Rc<Op>) -> Rc<IoOp<A>> where Op: 'static + AVar<AData<A>> {
-  IoOp::new(AVar::from(x_))
+pub fn io<A, In>(x_: In) -> Rc<IoOp<A>> where In: IoExt<A> {
+  IoExt::io(x_)
+}
+
+pub trait IoExt<A> {
+  fn io(x_: Self) -> Rc<IoOp<A>>;
+}
+
+impl<A> IoExt<A> for Rc<AVar<AData<A>>> {
+  fn io(x_: Rc<AVar<AData<A>>>) -> Rc<IoOp<A>> {
+    IoOp::new(x_)
+  }
+}
+
+impl<A, Op> IoExt<A> for Rc<Op> where Op: 'static + AVar<AData<A>> {
+  fn io(x_: Rc<Op>) -> Rc<IoOp<A>> {
+    IoOp::new(x_)
+  }
 }
 
 pub struct IoOp<A> {

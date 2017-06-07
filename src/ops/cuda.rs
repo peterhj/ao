@@ -194,6 +194,29 @@ impl IoBuf for DeviceArray1d<f32> {
   }
 }
 
+impl IoBuf for DeviceBatchArray1d<f32> {
+  fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
+    // FIXME
+    unimplemented!();
+  }
+
+  fn store(src: &Self, mut offset: usize, writer: &mut Any) -> usize {
+    if writer.downcast_mut::<Vec<f32>>().is_some() {
+      let dst_buf = writer.downcast_mut::<Vec<f32>>().unwrap();
+      let x_dim = src.dim();
+      let batch_sz = src.batch_size();
+      src.as_view().store_sync(dst_buf.reshape_mut((x_dim, batch_sz)), DeviceStream::implicit().conn());
+      /*println!("DEBUG: PassOp: storing value: {:?}", src.as_view().dim());
+      dst_buf.reshape_mut((x_dim, batch_sz)).set_constant(3.14);
+      DeviceStream::implicit().conn().sync();*/
+      offset += x_dim * batch_sz;
+    } else {
+      panic!("store: unimplemented writer type: {:?}", writer);
+    }
+    offset
+  }
+}
+
 impl IoBuf for DeviceArray2d<f32> {
   fn load(dst: &mut Self, mut offset: usize, reader: &mut Any) -> usize {
     let buf_len = dst.dim().flat_len();
