@@ -3553,106 +3553,128 @@ impl<Op> AutodiffSink for ArraySink<Op, f32> where Op: AVar<AData<f32>> {
   }
 }
 
+pub trait GradientExt<A> {
+  fn gradient(x_: Self) -> Rc<GradientSink<A>>;
+}
+
+impl<A> GradientExt<A> for Rc<AVar<AData<A>>> {
+  fn gradient(x_: Rc<AVar<AData<A>>>) -> Rc<GradientSink<A>> {
+    GradientSink::new(x_)
+  }
+}
+
+impl<A, Op> GradientExt<A> for Rc<Op> where Op: 'static + AVar<AData<A>> {
+  fn gradient(x_: Rc<Op>) -> Rc<GradientSink<A>> {
+    GradientSink::new(x_)
+  }
+}
+
 pub struct GradientSink<A> {
   node: NodeId,
   x_:   Rc<AVar<AData<A>>>,
   x:    AData<A>,
 }
 
-impl GradientSink<f32> {
-  pub fn _set_grad_sink(&self, txn: TxnId) {
-    let node = self.node;
-    if self.x.grad.overwrite(txn, node) {
-      *self.x.grad.get_excl(txn, node) = 1.0;
-    }
+impl<A> GradientSink<A> {
+  pub fn new(x_: Rc<AVar<AData<A>>>) -> Rc<Self> {
+    let node = NodeId::new();
+    let x = x_.data();
+    Rc::new(GradientSink{
+      node: node,
+      x_:   x_,
+      x:    x,
+    })
   }
 }
 
 impl GradientSinkExt for GradientSink<f32> {
-  fn gradient(&self, txn: TxnId) {
-    let epoch = Epoch::new(self.x_._id());
-    self.x_._push(epoch, &mut |op| { op._forward(txn); });
-    self.x_._pop(epoch, &mut |_op| {});
-    self._set_grad_sink(txn);
-    let epoch = Epoch::new(self.x_._id());
-    self.x_._push(epoch, &mut |_op| {});
-    self.x_._pop(epoch, &mut |op| { op._backward(txn); });
-  }
-}
-
-pub struct GaussNewtonSink<A> {
-  node: NodeId,
-  x_:   Rc<AVar<AData<A>>>,
-  rx_:  Rc<AVar<AData<A>>>,
-  x:    AData<A>,
-  rx:   AData<A>,
-}
-
-impl GaussNewtonSink<Batch<f32>> {
-  pub fn _set_grad_sink(&self, txn: TxnId) {
-    let node = self.node;
-    if self.x.grad.overwrite(txn, node) {
-      self.x.grad.get_excl(txn, node)
-        .copy_from_slice(&*self.rx.val.get(txn, node));
+  fn eval_gradient(&self, txn: TxnId) {
+    self.x_._traverse_fwd(&mut |op| { op._forward(txn); });
+    {
+      let node = self.node;
+      if self.x.grad.overwrite(txn, node) {
+        *self.x.grad.get_excl(txn, node) = 1.0;
+      }
     }
+    self.x_._traverse_bwd(&mut |op| { op._backward(txn); });
   }
 }
 
-impl GaussNewtonSinkExt for GaussNewtonSink<Batch<f32>> {
-  fn gauss_newton_vector_product(&self, txn: TxnId) {
-    let epoch = Epoch::new(self.x_._id());
-    self.x_._push(epoch, &mut |op| { op._forward(txn); });
-    self.x_._pop(epoch, &mut |_op| {});
-    let epoch = Epoch::new(self.rx_._id());
-    self.rx_._push(epoch, &mut |op| { op._forward(txn); });
-    self.rx_._pop(epoch, &mut |_op| {});
-    self._set_grad_sink(txn);
-    let epoch = Epoch::new(self.x_._id());
-    self.x_._push(epoch, &mut |_op| {});
-    self.x_._pop(epoch, &mut |op| { op._backward(txn); });
+pub trait HessianExt<A> {
+  fn hessian(x_: Self) -> Rc<HessianSink<A>>;
+}
+
+impl<A> HessianExt<A> for Rc<AVar<AData<A>>> {
+  fn hessian(x_: Rc<AVar<AData<A>>>) -> Rc<HessianSink<A>> {
+    HessianSink::new(x_)
+  }
+}
+
+impl<A, Op> HessianExt<A> for Rc<Op> where Op: 'static + AVar<AData<A>> {
+  fn hessian(x_: Rc<Op>) -> Rc<HessianSink<A>> {
+    HessianSink::new(x_)
   }
 }
 
 pub struct HessianSink<A> {
   node: NodeId,
-  x_:   Rc<AVar<AData<A>>>,
-  rx_:  Rc<AVar<AData<A>>>,
-  x:    AData<A>,
-  rx:   AData<A>,
+  x_:       Rc<AVar<AData<A>>>,
+  x_adj_:   Rc<AVar<AData<A>>>,
+  x:        AData<A>,
+  x_adj:    AData<A>,
 }
 
-impl HessianSink<f32> {
-  pub fn _set_grad_sink(&self, txn: TxnId) {
-    let node = self.node;
-    if self.x.grad.overwrite(txn, node) {
-      *self.x.grad.get_excl(txn, node) = 1.0;
-    }
-  }
-
-  pub fn _set_r_grad_sink(&self, txn: TxnId) {
-    let node = self.node;
-    if self.rx.grad.overwrite(txn, node) {
-      *self.rx.grad.get_excl(txn, node) = 0.0;
-    }
+impl<A> HessianSink<A> {
+  pub fn new(x_: Rc<AVar<AData<A>>>) -> Rc<Self> {
+    let node = NodeId::new();
+    let x_adj_ = x_.adjoint();
+    let x = x_.data();
+    let x_adj = x_adj_.data();
+    Rc::new(HessianSink{
+      node: node,
+      x_:       x_,
+      x_adj_:   x_adj_,
+      x:        x,
+      x_adj:    x_adj,
+    })
   }
 }
 
 impl HessianSinkExt for HessianSink<f32> {
-  fn hessian_vector_product(&self, txn: TxnId) {
-    let epoch = Epoch::new(self.x_._id());
-    self.x_._push(epoch, &mut |op| { op._forward(txn); });
-    self.x_._pop(epoch, &mut |_op| {});
-    let epoch = Epoch::new(self.rx_._id());
-    self.rx_._push(epoch, &mut |op| { op._forward(txn); });
-    self.rx_._pop(epoch, &mut |_op| {});
-    self._set_grad_sink(txn);
-    let epoch = Epoch::new(self.x_._id());
-    self.x_._push(epoch, &mut |_op| {});
-    self.x_._pop(epoch, &mut |op| { op._backward(txn); });
-    self._set_r_grad_sink(txn);
-    let epoch = Epoch::new(self.rx_._id());
-    self.rx_._push(epoch, &mut |_op| {});
-    self.rx_._pop(epoch, &mut |op| { op._backward(txn); });
+  fn eval_hessian_vector_product(&self, txn: TxnId) {
+    self.x_._traverse_fwd(&mut |op| { op._forward(txn); });
+    self.x_adj_._traverse_fwd(&mut |op| { op._forward(txn); });
+    {
+      let node = self.node;
+      if self.x.grad.overwrite(txn, node) {
+        *self.x.grad.get_excl(txn, node) = 1.0;
+      }
+    }
+    {
+      let node = self.node;
+      if self.x_adj.grad.overwrite(txn, node) {
+        *self.x_adj.grad.get_excl(txn, node) = 0.0;
+      }
+    }
+    self.x_._traverse_bwd(&mut |op| { op._backward(txn); });
+    self.x_adj_._traverse_bwd(&mut |op| { op._backward(txn); });
+  }
+}
+
+impl GaussNewtonSinkExt for HessianSink<Batch<f32>> {
+  fn eval_gauss_newton_vector_product(&self, txn: TxnId) {
+    self.x_._traverse_fwd(&mut |op| { op._forward(txn); });
+    self.x_adj_._traverse_fwd(&mut |op| { op._forward(txn); });
+    {
+      let node = self.node;
+      if self.x.grad.overwrite(txn, node) {
+        let batch_sz = self.x_adj.val.get(txn, node).batch_size();
+        for idx in 0 .. batch_sz {
+          self.x.grad.get_excl(txn, node)[idx] = self.x_adj.val.get(txn, node)[idx];
+        }
+      }
+    }
+    self.x_._traverse_bwd(&mut |op| { op._backward(txn); });
   }
 }
 

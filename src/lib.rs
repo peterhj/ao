@@ -623,26 +623,24 @@ pub trait AOp {
   }*/
 
   fn eval(&self, txn: TxnId) {
-    let epoch = Epoch::new(self._id());
-    self._push(epoch, &mut |op| { op._forward(txn); });
-    self._pop(epoch, &mut |_op| {});
+    self._traverse_fwd(&mut |op| { op._forward(txn); });
   }
 }
 
 pub trait GradientSinkExt {
-  fn gradient(&self, txn: TxnId);
-}
-
-pub trait GaussNewtonSinkExt {
-  fn gauss_newton_vector_product(&self, txn: TxnId);
+  fn eval_gradient(&self, txn: TxnId);
 }
 
 pub trait HessianSinkExt {
-  fn hessian_vector_product(&self, txn: TxnId);
+  fn eval_hessian_vector_product(&self, txn: TxnId);
+}
+
+pub trait GaussNewtonSinkExt {
+  fn eval_gauss_newton_vector_product(&self, txn: TxnId);
 }
 
 //pub trait AutodiffSink<Op>: Deref<Target=Op> where Op: AOp {
-pub trait AutodiffSink : AOp {
+pub trait AutodiffSink: AOp {
   fn _op(&self) -> &AOp;
   fn _set_source(&self, txn: TxnId);
 
