@@ -290,9 +290,9 @@ impl IoBuf for DeviceArray4d<f32> {
 }*/
 
 /*impl<T> AVar<AData<DeviceIoBatch<T>>> for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
-  fn adjoint(&self) -> Rc<AVar<AData<DeviceIoBatch<T>>>> {
-    let adj_src_ = src(self.horizon, self.clock, self.alloc.clone());
-    adj_src_
+  fn tangent(&self) -> Rc<AVar<AData<DeviceIoBatch<T>>>> {
+    let tng_src_ = src(self.horizon, self.clock, self.alloc.clone());
+    tng_src_
   }
 }*/
 
@@ -2797,15 +2797,15 @@ impl<Op> MultExt<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>
 }
 
 impl AVar<AData<DeviceBatchArray1d<f32>>> for LinearOp<DeviceArray2d<f32>, DeviceArray1d<f32>, DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>> {
-  fn _make_adjoint(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
-    let adj_a_ = self.a_.adjoint();
-    let adj_b_ = self.b_.as_ref().map(|b_| b_.adjoint());
-    let adj_x_ = self.x_.adjoint();
-    let adj_y_ = match adj_b_ {
-      None          => self.a_.mult(adj_x_).add(adj_a_.mult(self.x_.clone())),
-      Some(adj_b_)  => self.a_.mult(adj_x_).add(adj_a_.mult_add(self.x_.clone(), adj_b_)),
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    let tng_a_ = self.a_.tangent();
+    let tng_b_ = self.b_.as_ref().map(|b_| b_.tangent());
+    let tng_x_ = self.x_.tangent();
+    let tng_y_ = match tng_b_ {
+      None          => self.a_.mult(tng_x_).add(tng_a_.mult(self.x_.clone())),
+      Some(tng_b_)  => self.a_.mult(tng_x_).add(tng_a_.mult_add(self.x_.clone(), tng_b_)),
     };
-    adj_y_
+    tng_y_
   }
 }
 
@@ -4957,7 +4957,7 @@ impl AOp for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> {
 
 //impl AVar<()> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
 impl AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
-  fn _make_adjoint(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
+  fn _make_tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
     // FIXME
     unimplemented!();
   }
@@ -4998,13 +4998,13 @@ impl AOp for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, Entrop
 }
 
 impl AVar<()> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
-  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+  fn _make_tangent(&self) -> Rc<AVar<()>> {
     let x_ = self.x_.clone();
-    let x_adj_ = x_.adjoint();
+    let x_tng_ = x_.tangent();
     let t_ = self.t_.clone();
     let prob = self.prob.clone();
-    let (softmax_adj_, _, _) = SoftmaxAdj2Loss::new(x_, x_adj_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
-    softmax_adj_
+    let (softmax_tng_, _, _) = SoftmaxAdj2Loss::new(x_, x_tng_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
+    softmax_tng_
   }
 }
 
@@ -5047,7 +5047,7 @@ impl AOp for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
 }
 
 impl AVar<()> for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
-  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+  fn _make_tangent(&self) -> Rc<AVar<()>> {
     unimplemented!();
   }
 }
@@ -5059,7 +5059,7 @@ impl AOp for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, D
 
   fn _push(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
     if 1 == self.stack.push(epoch) {
-      self.x_adj_._push(epoch, apply);
+      self.x_tng_._push(epoch, apply);
       apply(self);
     }
   }
@@ -5067,12 +5067,12 @@ impl AOp for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, D
   fn _pop(&self, epoch: Epoch, apply: &mut FnMut(&AOp)) {
     if self.stack.degree(epoch) == self.stack.pop(epoch) {
       apply(self);
-      self.x_adj_._pop(epoch, apply);
+      self.x_tng_._pop(epoch, apply);
     }
   }
 
   fn _persist(&self, txn: TxnId, vars: &mut VarSet) {
-    self.loss_adj.rollover_all(txn, vars);
+    self.loss_tng.rollover_all(txn, vars);
   }
 
   fn _forward(&self, txn: TxnId) {
@@ -5089,7 +5089,7 @@ impl AOp for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, D
 }
 
 impl AVar<()> for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
-  fn _make_adjoint(&self) -> Rc<AVar<()>> {
+  fn _make_tangent(&self) -> Rc<AVar<()>> {
     // FIXME
     unimplemented!();
   }

@@ -141,7 +141,7 @@ pub struct SrcOp<A> {
   node_id:  NodeId,
   stack:    OperatorStack,
   data:     AData<A>,
-  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+  tng:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 impl<A> SrcOp<A> {
@@ -151,7 +151,7 @@ impl<A> SrcOp<A> {
       node_id:  node,
       stack:    OperatorStack::new(node, 0),
       data:     AData::new(/*horizon,*/ alloc),
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     })
   }
 }
@@ -161,16 +161,16 @@ impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
     &self.data
   }
 
-  default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_src_ = SrcOp::new(self.data.alloc.clone());
-    adj_src_
+  default fn _make_tangent(&self) -> Rc<AVar<AData<A>>> {
+    let tng_src_ = SrcOp::new(self.data.alloc.clone());
+    tng_src_
   }
 
-  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<AData<A>>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -574,7 +574,7 @@ pub struct NoOp<A> {
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
   data:     AData<A>,
-  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+  tng:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 impl<A> NoOp<A> {
@@ -586,7 +586,7 @@ impl<A> NoOp<A> {
       stack:    OperatorStack::new(node, 1),
       x_:       x_,
       data:     data,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     })
   }
 }
@@ -596,16 +596,16 @@ impl<A> AVar<AData<A>> for NoOp<A> where A: 'static {
     &self.data
   }
 
-  default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_op = NoOp::new(self.x_.adjoint());
-    adj_op
+  default fn _make_tangent(&self) -> Rc<AVar<AData<A>>> {
+    let tng_op = NoOp::new(self.x_.tangent());
+    tng_op
   }
 
-  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<AData<A>>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -648,7 +648,7 @@ pub struct IoOp<A> {
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
   data:     AData<A>,
-  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+  tng:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 impl<A> IoOp<A> {
@@ -660,7 +660,7 @@ impl<A> IoOp<A> {
       stack:    OperatorStack::new(node, 1),
       x_:       x_,
       data:     data,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     })
   }
 }
@@ -670,16 +670,16 @@ impl<A> AVar<AData<A>> for IoOp<A> where A: 'static, Self: AOp {
     &self.data
   }
 
-  default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_op = IoOp::new(self.x_.adjoint());
-    adj_op
+  default fn _make_tangent(&self) -> Rc<AVar<AData<A>>> {
+    let tng_op = IoOp::new(self.x_.tangent());
+    tng_op
   }
 
-  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<AData<A>>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -754,8 +754,8 @@ impl<A> AOp for IoOp<A> where A: 'static {
 }
 
 pub fn unpack2<A1, A2>(x_: Rc<AVar<(A1, A2)>>) -> (Rc<Unpack2Out1Op<A1, A2>>, Rc<Unpack2Out2Op<A1, A2>>) where A1: AVarOutput, A2: AVarOutput {
-  let empty_adj = Rc::new(RefCell::new(None));
-  (Unpack2Out1Op::new(x_.clone(), empty_adj.clone()), Unpack2Out2Op::new(x_.clone(), empty_adj.clone()))
+  let empty_tng = Rc::new(RefCell::new(None));
+  (Unpack2Out1Op::new(x_.clone(), empty_tng.clone()), Unpack2Out2Op::new(x_.clone(), empty_tng.clone()))
 }
 
 pub struct Unpack2Out1Op<A1, A2> {
@@ -763,11 +763,11 @@ pub struct Unpack2Out1Op<A1, A2> {
   stack:    OperatorStack,
   x_:       Rc<AVar<(A1, A2)>>,
   data:     A1,
-  adj:      Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>,
+  tng:      Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>,
 }
 
 impl<A1, A2> Unpack2Out1Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
-  pub fn new(x_: Rc<AVar<(A1, A2)>>, empty_adj: Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>) -> Rc<Self> {
+  pub fn new(x_: Rc<AVar<(A1, A2)>>, empty_tng: Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>) -> Rc<Self> {
     let node = NodeId::new();
     let data = x_.data().0;
     Rc::new(Unpack2Out1Op{
@@ -775,7 +775,7 @@ impl<A1, A2> Unpack2Out1Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
       stack:    OperatorStack::new(node, 1),
       x_:       x_,
       data:     data,
-      adj:      empty_adj,
+      tng:      empty_tng,
     })
   }
 }
@@ -785,16 +785,16 @@ impl<A1, A2> AVar<A1> for Unpack2Out1Op<A1, A2> where A1: 'static + AVarOutput, 
     &self.data
   }
 
-  default fn _make_adjoint(&self) -> Rc<AVar<A1>> {
+  default fn _make_tangent(&self) -> Rc<AVar<A1>> {
     unreachable!();
   }
 
-  default fn adjoint(&self) -> Rc<AVar<A1>> {
-    if self.adj.borrow().is_none() {
-      let adj = unpack2(self.x_.adjoint());
-      *self.adj.borrow_mut() = Some((AVar::from(adj.0), AVar::from(adj.1)));
+  default fn tangent(&self) -> Rc<AVar<A1>> {
+    if self.tng.borrow().is_none() {
+      let tng = unpack2(self.x_.tangent());
+      *self.tng.borrow_mut() = Some((AVar::from(tng.0), AVar::from(tng.1)));
     }
-    self.adj.borrow().as_ref().unwrap().0.clone()
+    self.tng.borrow().as_ref().unwrap().0.clone()
   }
 }
 
@@ -833,11 +833,11 @@ pub struct Unpack2Out2Op<A1, A2> {
   stack:    OperatorStack,
   x_:       Rc<AVar<(A1, A2)>>,
   data:     A2,
-  adj:      Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>,
+  tng:      Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>,
 }
 
 impl<A1, A2> Unpack2Out2Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
-  pub fn new(x_: Rc<AVar<(A1, A2)>>, empty_adj: Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>) -> Rc<Self> {
+  pub fn new(x_: Rc<AVar<(A1, A2)>>, empty_tng: Rc<RefCell<Option<(Rc<AVar<A1>>, Rc<AVar<A2>>)>>>) -> Rc<Self> {
     let node = NodeId::new();
     let data = x_.data().1;
     Rc::new(Unpack2Out2Op{
@@ -845,7 +845,7 @@ impl<A1, A2> Unpack2Out2Op<A1, A2> where A1: AVarOutput, A2: AVarOutput {
       stack:    OperatorStack::new(node, 1),
       x_:       x_,
       data:     data,
-      adj:      empty_adj,
+      tng:      empty_tng,
     })
   }
 }
@@ -855,16 +855,16 @@ impl<A1, A2> AVar<A2> for Unpack2Out2Op<A1, A2> where A1: 'static + AVarOutput, 
     &self.data
   }
 
-  default fn _make_adjoint(&self) -> Rc<AVar<A2>> {
+  default fn _make_tangent(&self) -> Rc<AVar<A2>> {
     unreachable!();
   }
 
-  default fn adjoint(&self) -> Rc<AVar<A2>> {
-    if self.adj.borrow().is_none() {
-      let adj = unpack2(self.x_.adjoint());
-      *self.adj.borrow_mut() = Some((AVar::from(adj.0), AVar::from(adj.1)));
+  default fn tangent(&self) -> Rc<AVar<A2>> {
+    if self.tng.borrow().is_none() {
+      let tng = unpack2(self.x_.tangent());
+      *self.tng.borrow_mut() = Some((AVar::from(tng.0), AVar::from(tng.1)));
     }
-    self.adj.borrow().as_ref().unwrap().1.clone()
+    self.tng.borrow().as_ref().unwrap().1.clone()
   }
 }
 
@@ -911,7 +911,7 @@ pub struct PassOp<Pre, A> {
   //x_:       RefCell<Option<Rc<AOp>>>,
   x_:       RefCell<Option<Rc<AVar<Pre>>>>,
   data:     AData<A>,
-  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+  tng:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 //impl<A> PassOp<A> {
@@ -924,7 +924,7 @@ impl<Pre, A> PassOp<Pre, A> {
       stack:    OperatorStack::new(node, 1),
       x_:       RefCell::new(x_),
       data:     data,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     })
   }
 }
@@ -935,16 +935,16 @@ impl<Pre, A> AVar<AData<A>> for PassOp<Pre, A> where Pre: 'static + AVarOutput, 
     &self.data
   }
 
-  default fn _make_adjoint(&self) -> Rc<AVar<AData<A>>> {
-    let adj_op = PassOp::new(self.x_.borrow().as_ref().map(|op| op.adjoint()), self.data.clone());
-    adj_op
+  default fn _make_tangent(&self) -> Rc<AVar<AData<A>>> {
+    let tng_op = PassOp::new(self.x_.borrow().as_ref().map(|op| op.tangent()), self.data.clone());
+    tng_op
   }
 
-  default fn adjoint(&self) -> Rc<AVar<AData<A>>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<AData<A>>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -1935,7 +1935,7 @@ pub struct LinearOp<A, B, V, W> {
   x:    AData<V>,
   y:    AData<W>,
   tmp:  AData<W>,
-  adj:  RefCell<Option<Rc<AVar<AData<W>>>>>,
+  tng:  RefCell<Option<Rc<AVar<AData<W>>>>>,
 }
 
 impl<A, B, V, W> LinearOp<A, B, V, W> {
@@ -1959,7 +1959,7 @@ impl<A, B, V, W> LinearOp<A, B, V, W> {
       x:    x,
       y:    AData::new(/*clk_horizon,*/ alloc.clone()),
       tmp:  AData::new(/*1,*/ alloc),
-      adj:  RefCell::new(None),
+      tng:  RefCell::new(None),
     })
   }
 }
@@ -1970,22 +1970,22 @@ impl<A, B, V, W> AVar<AData<W>> for LinearOp<A, B, V, W> where LinearOp<A, B, V,
   }
 
   // FIXME(20170530): requires extra trait bounds on inputs.
-  /*default fn _make_adjoint(&self) -> Rc<AVar<AData<W>>> {
-    let adj_a_ = self.a_.adjoint();
-    let adj_b_ = self.b_.as_ref().map(|b_| b_.adjoint());
-    let adj_x_ = self.x_.adjoint();
-    let adj_y_ = match adj_b_ {
-      None          => self.a_.mult(adj_x_).add(adj_a_.mult(self.x_.clone())),
-      Some(adj_b_)  => self.a_.mult(adj_x_).add(adj_a_.mult_add(self.x_.clone(), adj_b_)),
+  /*default fn _make_tangent(&self) -> Rc<AVar<AData<W>>> {
+    let tng_a_ = self.a_.tangent();
+    let tng_b_ = self.b_.as_ref().map(|b_| b_.tangent());
+    let tng_x_ = self.x_.tangent();
+    let tng_y_ = match tng_b_ {
+      None          => self.a_.mult(tng_x_).add(tng_a_.mult(self.x_.clone())),
+      Some(tng_b_)  => self.a_.mult(tng_x_).add(tng_a_.mult_add(self.x_.clone(), tng_b_)),
     };
-    adj_y_
+    tng_y_
   }*/
 
-  default fn adjoint(&self) -> Rc<AVar<AData<W>>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<AData<W>>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3200,13 +3200,13 @@ impl<Idx, A, M> AVar<()> for BatchStatsOp<Idx, A, M> where BatchStatsOp<Idx, A, 
     var_set()
   }
 
-  default fn adjoint(&self) -> Rc<AVar<()>> {
+  default fn tangent(&self) -> Rc<AVar<()>> {
     // FIXME
     unimplemented!();
-    /*if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+    /*if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()*/
+    self.tng.borrow().as_ref().unwrap().clone()*/
   }
 }
 
@@ -3619,23 +3619,23 @@ impl<A, Op> HessianExt<A> for Rc<Op> where Op: 'static + AVar<AData<A>> {
 pub struct HessianSink<A> {
   node: NodeId,
   x_:       Rc<AVar<AData<A>>>,
-  x_adj_:   Rc<AVar<AData<A>>>,
+  x_tng_:   Rc<AVar<AData<A>>>,
   x:        AData<A>,
-  x_adj:    AData<A>,
+  x_tng:    AData<A>,
 }
 
 impl<A> HessianSink<A> {
   pub fn new(x_: Rc<AVar<AData<A>>>) -> Rc<Self> {
     let node = NodeId::new();
-    let x_adj_ = x_.adjoint();
+    let x_tng_ = x_.tangent();
     let x = x_.data();
-    let x_adj = x_adj_.data();
+    let x_tng = x_tng_.data();
     Rc::new(HessianSink{
       node: node,
       x_:       x_,
-      x_adj_:   x_adj_,
+      x_tng_:   x_tng_,
       x:        x,
-      x_adj:    x_adj,
+      x_tng:    x_tng,
     })
   }
 }
@@ -3643,7 +3643,7 @@ impl<A> HessianSink<A> {
 impl HessianSinkExt for HessianSink<f32> {
   fn eval_hessian_vector_product(&self, txn: TxnId) {
     self.x_._traverse_fwd(&mut |op| { op._forward(txn); });
-    self.x_adj_._traverse_fwd(&mut |op| { op._forward(txn); });
+    self.x_tng_._traverse_fwd(&mut |op| { op._forward(txn); });
     {
       let node = self.node;
       if self.x.grad.overwrite(txn, node) {
@@ -3652,25 +3652,25 @@ impl HessianSinkExt for HessianSink<f32> {
     }
     {
       let node = self.node;
-      if self.x_adj.grad.overwrite(txn, node) {
-        *self.x_adj.grad.get_excl(txn, node) = 0.0;
+      if self.x_tng.grad.overwrite(txn, node) {
+        *self.x_tng.grad.get_excl(txn, node) = 0.0;
       }
     }
     self.x_._traverse_bwd(&mut |op| { op._backward(txn); });
-    self.x_adj_._traverse_bwd(&mut |op| { op._backward(txn); });
+    self.x_tng_._traverse_bwd(&mut |op| { op._backward(txn); });
   }
 }
 
 impl GaussNewtonSinkExt for HessianSink<Batch<f32>> {
   fn eval_gauss_newton_vector_product(&self, txn: TxnId) {
     self.x_._traverse_fwd(&mut |op| { op._forward(txn); });
-    self.x_adj_._traverse_fwd(&mut |op| { op._forward(txn); });
+    self.x_tng_._traverse_fwd(&mut |op| { op._forward(txn); });
     {
       let node = self.node;
       if self.x.grad.overwrite(txn, node) {
-        let batch_sz = self.x_adj.val.get(txn, node).batch_size();
+        let batch_sz = self.x_tng.val.get(txn, node).batch_size();
         for idx in 0 .. batch_sz {
-          self.x.grad.get_excl(txn, node)[idx] = self.x_adj.val.get(txn, node)[idx];
+          self.x.grad.get_excl(txn, node)[idx] = self.x_tng.val.get(txn, node)[idx];
         }
       }
     }
@@ -3728,7 +3728,7 @@ pub struct SoftmaxOp<A> {
   x_:       Rc<AVar<AData<A>>>,
   x:        AData<A>,
   prob:     AData<A>,
-  adj:      RefCell<Option<Rc<AVar<AData<A>>>>>,
+  tng:      RefCell<Option<Rc<AVar<AData<A>>>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -3761,7 +3761,7 @@ pub struct SoftmaxSelfLoss<A, Loss, Link> {
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
-  adj:      RefCell<Option<Rc<AVar<(AData<A>, AData<Loss>)>>>>,
+  tng:      RefCell<Option<Rc<AVar<(AData<A>, AData<Loss>)>>>>,
 }
 
 impl<A, Loss, Link> SoftmaxSelfLoss<A, Loss, Link>
@@ -3783,7 +3783,7 @@ where A: 'static, Loss: 'static, Link: 'static,
       prob:     prob,
       loss:     loss,
       link:     link,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     });
     /*let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
     let loss_ = PassOp::new(Some(AVar::from(softmax_.clone())), loss);
@@ -3808,11 +3808,11 @@ where A: 'static, Loss: 'static, Link: 'static,
     var_set()
   }
 
-  default fn adjoint(&self) -> Rc<AVar<()>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<()>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }*/
 
@@ -3832,11 +3832,11 @@ where A: 'static, Loss: 'static, Link: 'static,
     self.prob._vars().union(self.loss._vars())
   }
 
-  default fn adjoint(&self) -> Rc<AVar<(AData<A>, AData<Loss>)>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<(AData<A>, AData<Loss>)>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3851,7 +3851,7 @@ pub struct Softmax2Loss<A, T, Loss, Link> {
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
-  adj:      RefCell<Option<Rc<AVar<()>>>>,
+  tng:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
 impl<A, T, Loss, Link> Softmax2Loss<A, T, Loss, Link>
@@ -3874,7 +3874,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       prob:     prob.clone(),
       loss:     loss.clone(),
       link:     link,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     });
     let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
     let loss_ = PassOp::new(Some(AVar::from(softmax_.clone())), loss);
@@ -3898,11 +3898,11 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     var_set()
   }
 
-  default fn adjoint(&self) -> Rc<AVar<()>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<()>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3910,48 +3910,48 @@ pub struct SoftmaxAdj2Loss<A, T, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
-  x_adj_:   Rc<AVar<AData<A>>>,
+  x_tng_:   Rc<AVar<AData<A>>>,
   t_:       Rc<AVar<AData<T>>>,
   x:        AData<A>,
-  x_adj:    AData<A>,
+  x_tng:    AData<A>,
   t:        AData<T>,
   //prob_:    Rc<AVar<AData<A>>>,
   prob:     AData<A>,
-  prob_adj: AData<A>,
-  loss_adj: AData<Loss>,
+  prob_tng: AData<A>,
+  loss_tng: AData<Loss>,
   link:     Link,
-  adj:      RefCell<Option<Rc<AVar<()>>>>,
+  tng:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
 impl<A, T, Loss, Link> SoftmaxAdj2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, x_adj_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, prob: AData<A>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<(), A>>, Rc<PassOp<(), Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, x_tng_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, prob: AData<A>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<(), A>>, Rc<PassOp<(), Loss>>) {
     let node = NodeId::new();
     let x = x_.data();
-    let x_adj = x_adj_.data();
+    let x_tng = x_tng_.data();
     let t = t_.data();
-    let prob_adj = AData::new(/*clk_horizon,*/ prob_alloc.clone());
-    let loss_adj = AData::new(/*clk_horizon,*/ loss_alloc.clone());
-    let softmax_adj_ = Rc::new(SoftmaxAdj2Loss{
+    let prob_tng = AData::new(/*clk_horizon,*/ prob_alloc.clone());
+    let loss_tng = AData::new(/*clk_horizon,*/ loss_alloc.clone());
+    let softmax_tng_ = Rc::new(SoftmaxAdj2Loss{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
       x_:       x_,
-      x_adj_:   x_adj_,
+      x_tng_:   x_tng_,
       t_:       t_,
       x:        x,
-      x_adj:    x_adj,
+      x_tng:    x_tng,
       t:        t,
       prob:     prob,
-      prob_adj: prob_adj.clone(),
-      loss_adj: loss_adj.clone(),
+      prob_tng: prob_tng.clone(),
+      loss_tng: loss_tng.clone(),
       link:     link,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     });
-    let prob_adj_ = PassOp::new(Some(AVar::from(softmax_adj_.clone())), prob_adj);
-    let loss_adj_ = PassOp::new(Some(AVar::from(softmax_adj_.clone())), loss_adj);
-    (softmax_adj_, prob_adj_, loss_adj_)
+    let prob_tng_ = PassOp::new(Some(AVar::from(softmax_tng_.clone())), prob_tng);
+    let loss_tng_ = PassOp::new(Some(AVar::from(softmax_tng_.clone())), loss_tng);
+    (softmax_tng_, prob_tng_, loss_tng_)
   }
 }
 
@@ -3971,11 +3971,11 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     var_set()
   }
 
-  default fn adjoint(&self) -> Rc<AVar<()>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<()>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3992,7 +3992,7 @@ pub struct Softmax3Loss<A, T1, T2, Loss, Link> {
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
-  adj:      RefCell<Option<Rc<AVar<()>>>>,
+  tng:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
 impl<A, T1, T2, Loss, Link> Softmax3Loss<A, T1, T2, Loss, Link>
@@ -4018,7 +4018,7 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
       prob:     prob.clone(),
       loss:     loss.clone(),
       link:     link,
-      adj:      RefCell::new(None),
+      tng:      RefCell::new(None),
     });
     let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
     let loss_ = PassOp::new(Some(AVar::from(softmax_.clone())), loss);
@@ -4042,11 +4042,11 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
     var_set()
   }
 
-  default fn adjoint(&self) -> Rc<AVar<()>> {
-    if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+  default fn tangent(&self) -> Rc<AVar<()>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -4127,13 +4127,13 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     var_set()
   }
 
-  default fn adjoint(&self) -> Rc<AVar<()>> {
+  default fn tangent(&self) -> Rc<AVar<()>> {
     // FIXME
     unimplemented!();
-    /*if self.adj.borrow().is_none() {
-      *self.adj.borrow_mut() = Some(self._make_adjoint());
+    /*if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
     }
-    self.adj.borrow().as_ref().unwrap().clone()*/
+    self.tng.borrow().as_ref().unwrap().clone()*/
   }
 }
 
