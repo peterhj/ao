@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-#cuda = []
 
 [build-dependencies]
 gcc = "*"
@@ -20,11 +19,10 @@ walkdir = "*"
 #lazy_static = "*"
 libc = "*"
 rand = "*"
-#arithmetic = { path = "../libarithmetic" }
 async_execution = { path = "../async_execution" }
 cuda = { version = "*", optional = true }
 cuda_dnn = { version = "*", requires = "cuda" }
 densearray = "*"
-devicemem_cuda = { path = "../libdevicemem_cuda" }
+devicemem_cuda = { path = "../libdevicemem_cuda", requires = "cuda" }
 fnv = "*"
 rng = "*"

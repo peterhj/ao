@@ -767,15 +767,15 @@ impl<A1, A2> AVarOutput for (A1, A2) where A1: AVarOutput, A2: AVarOutput {
 }
 
 pub trait AVar<Out>: AOp where Out: AVarOutput {
-  fn _owned_data(&self) -> &Out;
-  fn _make_tangent(&self) -> Rc<AVar<Out>> { unimplemented!(); }
-
   fn from(op: Rc<Self>) -> Rc<AVar<Out>> where Self: 'static + Sized { op }
   fn from_shared(op: Arc<Self>) -> Arc<AVar<Out>> where Self: 'static + Sized { op }
   fn from_owned(op: Box<Self>) -> Box<AVar<Out>> where Self: 'static + Sized { op }
 
+  fn _owned_data(&self) -> &Out;
   fn data(&self) -> Out { self._owned_data().clone() }
   fn vars(&self) -> VarSet { self._owned_data()._vars() }
+
+  fn _make_tangent(&self) -> Rc<AVar<Out>> { unimplemented!(); }
   fn tangent(&self) -> Rc<AVar<Out>> { unimplemented!(); }
 }
 

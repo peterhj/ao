@@ -175,7 +175,7 @@ impl<A> AVar<AData<A>> for SrcOp<A> where A: 'static, SrcOp<A>: AOp {
 }
 
 impl AOp for SrcOp<f32> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
@@ -223,7 +223,7 @@ impl AOp for SrcOp<f32> {
       unimplemented!();
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -266,7 +266,7 @@ impl AOp for SrcOp<f32> {
 }
 
 impl AOp for SrcOp<Batch<u32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       if self.data.val.overwrite(txn, node) {
@@ -314,7 +314,7 @@ impl AOp for SrcOp<Batch<u32>> {
       unimplemented!();
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -356,7 +356,7 @@ impl AOp for SrcOp<Batch<u32>> {
 }
 
 impl AOp for SrcOp<Array1d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -382,7 +382,7 @@ impl AOp for SrcOp<Array1d<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -424,7 +424,7 @@ impl AOp for SrcOp<Array1d<f32>> {
 }
 
 impl AOp for SrcOp<Array2d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -450,7 +450,7 @@ impl AOp for SrcOp<Array2d<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -498,7 +498,7 @@ impl AOp for SrcOp<Array2d<f32>> {
 }*/
 
 impl AOp for SrcOp<Array4d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -524,7 +524,7 @@ impl AOp for SrcOp<Array4d<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -1236,6 +1236,10 @@ impl<A, Init> AVar<AData<A>> for InitializeOp<A, Init> where InitializeOp<A, Ini
   default fn _owned_data(&self) -> &AData<A> {
     &self.data
   }
+
+  default fn tangent(&self) -> Rc<AVar<AData<A>>> {
+    self.x_.tangent()
+  }
 }
 
 /*impl AVar<AData<f32>> for InitializeOp<f32, Rc<Fn(TxnId, NodeId, Rc<RefCell<ChaChaRng>>, AData<f32>)>> {
@@ -1590,6 +1594,7 @@ pub struct TransformOp<A, B, Transform> {
   x:    AData<A>,
   y:    AData<B>,
   kernel:   Transform,
+  tng_: RefCell<Option<Rc<AVar<AData<B>>>>>,
 }
 
 pub struct CastTransform;
@@ -1634,6 +1639,7 @@ impl<A, B, Transform> TransformOp<A, B, Transform> {
       x:    x,
       y:    AData::new(/*clk_horizon,*/ alloc),
       kernel:   transform,
+      tng_: RefCell::new(None),
     })
   }
 }
@@ -1938,6 +1944,12 @@ impl<A, Clip, Kernel> AVar<AData<A>> for ClipOp<A, Clip, Kernel> where ClipOp<A,
 pub trait MultExt<A, B, V, W> {
   fn mult(&self, x: Rc<AVar<AData<V>>>) -> Rc<LinearOp<A, B, V, W>>;
   fn mult_add(&self, x: Rc<AVar<AData<V>>>, b: Rc<AVar<AData<B>>>) -> Rc<LinearOp<A, B, V, W>>;
+}
+
+pub trait TransposeMultExt<A, B, V, W> {
+  // FIXME: want a generic transpose type.
+  fn mult(&self, /*transpose: _,*/ x: Rc<AVar<AData<V>>>) -> Rc<LinearOp<A, B, V, W>>;
+  fn mult_add(&self, /*transpose: _,*/ x: Rc<AVar<AData<V>>>, b: Rc<AVar<AData<B>>>) -> Rc<LinearOp<A, B, V, W>>;
 }
 
 pub struct LinearOp<A, B, V, W> {
@@ -2435,14 +2447,15 @@ pub struct ElemLinearOp<A, V, K> {
   node_id:  NodeId,
   stack:    OperatorStack,
   a_:   Rc<AVar<AData<A>>>,
-  x_:   Rc<AVar<AData<V>>>,
   b_:   Option<Rc<AVar<AData<A>>>>,
+  x_:   Rc<AVar<AData<V>>>,
   a:    AData<A>,
-  x:    AData<V>,
   b:    Option<AData<A>>,
+  x:    AData<V>,
   y:    AData<V>,
   //tmp:  AData<V>,
   kernel:   K,
+  tng_: RefCell<Option<Rc<AVar<AData<V>>>>>,
 }
 
 impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
@@ -2459,14 +2472,15 @@ impl<A, V, Kernel> ElemLinearOp<A, V, Kernel> {
       node_id:  node,
       stack:    OperatorStack::new(node, in_degree),
       a_:   a_,
-      x_:   x_,
       b_:   b_,
+      x_:   x_,
       a:    a,
-      x:    x,
       b:    b,
+      x:    x,
       y:    AData::new(/*clk_horizon,*/ alloc.clone()),
       //tmp:  AData::new(/*clk_horizon,*/ alloc.clone()),
       kernel:   kernel,
+      tng_: RefCell::new(None),
     })
   }
 }
@@ -2487,9 +2501,16 @@ impl<A, V, Kernel> AVar<AData<V>> for ElemLinearOp<A, V, Kernel> where ElemLinea
   default fn _owned_data(&self) -> &AData<V> {
     &self.y
   }
+
+  default fn tangent(&self) -> Rc<AVar<AData<V>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
+  }
 }
 
-impl<S> AOp for ElemLinearOp<f32, BatchArray3d<f32, S>, BroadcastMultAddKernel> where S: DerefMut<Target=[f32]> {
+/*impl<S> AOp for ElemLinearOp<f32, BatchArray3d<f32, S>, BroadcastMultAddKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -2535,9 +2556,9 @@ impl<S> AOp for ElemLinearOp<f32, BatchArray3d<f32, S>, BroadcastMultAddKernel> 
     // TODO
     unimplemented!();
   }
-}
+}*/
 
-impl<S> AOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, ElemNormalizeKernel> where S: DerefMut<Target=[f32]> {
+/*impl<S> AOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, ElemNormalizeKernel> where S: DerefMut<Target=[f32]> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
@@ -2583,7 +2604,7 @@ impl<S> AOp for ElemLinearOp<Array1d<f32, S>, BatchArray3d<f32, S>, ElemNormaliz
     // TODO
     unimplemented!();
   }
-}
+}*/
 
 pub struct ElemNormalizeOp<Idx, A, V> where Idx: ArrayIndex {
   node_id:  NodeId,
@@ -2690,13 +2711,14 @@ pub struct ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex {
   stack:    OperatorStack,
   shape:    ConvShape<Idx>,
   a_:   Rc<AVar<AData<A>>>,
-  x_:   Rc<AVar<AData<V>>>,
   b_:   Option<Rc<AVar<AData<B>>>>,
+  x_:   Rc<AVar<AData<V>>>,
   a:    AData<A>,
-  x:    AData<V>,
   b:    Option<AData<B>>,
+  x:    AData<V>,
   y:    AData<V>,
   backend:  Backend,
+  tng_: RefCell<Option<Rc<AVar<AData<V>>>>>,
 }
 
 impl<Idx, A, B, V, Backend> ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex {
@@ -2722,7 +2744,24 @@ impl<Idx, A, B, V, Backend> ConvOp<Idx, A, B, V, Backend> where Idx: ArrayIndex 
       y:    AData::new(/*clk_horizon,*/ alloc.clone()),
       //tmp:  AData::new(1, alloc),
       backend:  backend,
+      tng_: RefCell::new(None),
     })
+  }
+}
+
+impl<Idx, A, B, V, Backend> AVar<AData<V>> for ConvOp<Idx, A, B, V, Backend>
+where Idx: ArrayIndex,
+      Self: AOp,
+{
+  default fn _owned_data(&self) -> &AData<V> {
+    &self.y
+  }
+
+  default fn tangent(&self) -> Rc<AVar<AData<V>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3924,7 +3963,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-pub struct SoftmaxAdj2Loss<A, T, Loss, Link> {
+pub struct SoftmaxTangent2Loss<A, T, Loss, Link> {
   node_id:  NodeId,
   stack:    OperatorStack,
   x_:       Rc<AVar<AData<A>>>,
@@ -3941,7 +3980,7 @@ pub struct SoftmaxAdj2Loss<A, T, Loss, Link> {
   tng:      RefCell<Option<Rc<AVar<()>>>>,
 }
 
-impl<A, T, Loss, Link> SoftmaxAdj2Loss<A, T, Loss, Link>
+impl<A, T, Loss, Link> SoftmaxTangent2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3952,7 +3991,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     let t = t_.data();
     let prob_tng = AData::new(/*clk_horizon,*/ prob_alloc.clone());
     let loss_tng = AData::new(/*clk_horizon,*/ loss_alloc.clone());
-    let softmax_tng_ = Rc::new(SoftmaxAdj2Loss{
+    let softmax_tng_ = Rc::new(SoftmaxTangent2Loss{
       node_id:  node,
       stack:    OperatorStack::new(node, 2),
       x_:       x_,
@@ -3973,7 +4012,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
   }
 }
 
-impl<A, T, Loss, Link> AVar<()> for SoftmaxAdj2Loss<A, T, Loss, Link>
+impl<A, T, Loss, Link> AVar<()> for SoftmaxTangent2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {

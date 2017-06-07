@@ -320,7 +320,7 @@ impl IoBuf for DeviceArray4d<f32> {
 }*/
 
 impl<T> AOp for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -362,7 +362,7 @@ impl<T> AOp for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
       unimplemented!();
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -404,7 +404,7 @@ impl<T> AOp for SrcOp<DeviceIoBatch<T>> where T: 'static + Copy {
 }
 
 impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -471,7 +471,7 @@ impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
       unimplemented!();
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -513,7 +513,7 @@ impl AOp for SrcOp<DeviceBatchIoMem<u8>> {
 }
 
 impl<Pre> AOp for PassOp<Pre, DeviceIoBatch<f32>> where Pre: AVarOutput {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -544,7 +544,7 @@ impl<Pre> AOp for PassOp<Pre, DeviceIoBatch<f32>> where Pre: AVarOutput {
       unimplemented!();
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -578,7 +578,7 @@ impl<Pre> AOp for PassOp<Pre, DeviceIoBatch<f32>> where Pre: AVarOutput {
 }
 
 impl<Pre> AOp for PassOp<Pre, DeviceBatchArray1d<f32>> where Pre: AVarOutput {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -624,7 +624,7 @@ impl<Pre> AOp for PassOp<Pre, DeviceBatchArray1d<f32>> where Pre: AVarOutput {
       unimplemented!();
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -658,7 +658,7 @@ impl<Pre> AOp for PassOp<Pre, DeviceBatchArray1d<f32>> where Pre: AVarOutput {
 }
 
 impl<Pre> AOp for PassOp<Pre, DeviceArray1d<f32>> where Pre: AVarOutput {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -686,7 +686,7 @@ impl<Pre> AOp for PassOp<Pre, DeviceArray1d<f32>> where Pre: AVarOutput {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -726,7 +726,7 @@ impl<Pre> AOp for PassOp<Pre, DeviceArray1d<f32>> where Pre: AVarOutput {
 }*/
 
 impl AOp for SrcOp<DeviceMem<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -752,7 +752,7 @@ impl AOp for SrcOp<DeviceMem<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -794,7 +794,7 @@ impl AOp for SrcOp<DeviceMem<f32>> {
 }
 
 impl AOp for SrcOp<DeviceArray1d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -820,7 +820,7 @@ impl AOp for SrcOp<DeviceArray1d<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -862,7 +862,7 @@ impl AOp for SrcOp<DeviceArray1d<f32>> {
 }
 
 impl AOp for SrcOp<DeviceArray2d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -888,7 +888,7 @@ impl AOp for SrcOp<DeviceArray2d<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -930,7 +930,7 @@ impl AOp for SrcOp<DeviceArray2d<f32>> {
 }
 
 impl AOp for SrcOp<DeviceArray4d<f32>> {
-  fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
+  /*fn _load_val(&self, txn: TxnId, vars: &mut VarSet, mut offset: usize, reader: &mut Any) -> usize {
     let node = self._id();
     if vars.mask(self.data.val.var()) {
       assert!(self.data.val.overwrite(txn, node));
@@ -956,7 +956,7 @@ impl AOp for SrcOp<DeviceArray4d<f32>> {
       offset = IoBuf::store(&*grad, offset, writer);
     }
     offset
-  }
+  }*/
 
   fn _id(&self) -> NodeId {
     self.node_id
@@ -1519,8 +1519,20 @@ impl AOp for MapOp<DeviceBatchArray3d<f32>, RectMapKernel> {
       self.x.grad.get_mut(txn, node).as_view_mut().flatten_mut().post(&conn);
     }
   }
+}
 
-  // TODO: higher order.
+impl CastExt<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>> for Rc<AVar<AData<DeviceBatchArray1d<u8>>>> {
+  fn cast(&self) -> Rc<TransformOp<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>, CastTransform>> {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), CastTransform, /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray1d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
 }
 
 impl<Op> CastExt<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray1d<u8>>> {
@@ -1540,6 +1552,17 @@ impl<Op> CastExt<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>> for Rc<Op> whe
 impl AVar<AData<DeviceBatchArray1d<f32>>> for TransformOp<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>, CastTransform> {
   fn _owned_data(&self) -> &AData<DeviceBatchArray1d<f32>> {
     &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    self.x_.tangent().cast()
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -1593,6 +1616,20 @@ impl AOp for TransformOp<DeviceBatchArray1d<u8>, DeviceBatchArray1d<f32>, CastTr
   }
 }
 
+impl CastExt<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>> for Rc<AVar<AData<DeviceBatchArray3d<u8>>>> {
+  fn cast(&self) -> Rc<TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTransform>> {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), CastTransform, /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl<Op> CastExt<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<u8>>> {
   fn cast(&self) -> Rc<TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTransform>> {
     //let clk_horizon = self.data().horizon();
@@ -1610,6 +1647,17 @@ impl<Op> CastExt<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>> for Rc<Op> whe
 impl AVar<AData<DeviceBatchArray3d<f32>>> for TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTransform> {
   fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
     &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    self.x_.tangent().cast()
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -1690,6 +1738,20 @@ impl AOp for TransformOp<DeviceBatchArray3d<u8>, DeviceBatchArray3d<f32>, CastTr
   }*/
 }
 
+impl FlattenExt<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>> for Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+  fn flatten(&self) -> Rc<TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, FlattenTransform>> {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), FlattenTransform, /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        let x_dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray1d::zeros(x_dim.flat_len(), batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl<Op> FlattenExt<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchArray3d<f32>>> {
   fn flatten(&self) -> Rc<TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, FlattenTransform>> {
     //let clk_horizon = self.data().horizon();
@@ -1707,6 +1769,17 @@ impl<Op> FlattenExt<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>> for Rc<Op>
 impl AVar<AData<DeviceBatchArray1d<f32>>> for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, FlattenTransform> {
   fn _owned_data(&self) -> &AData<DeviceBatchArray1d<f32>> {
     &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    self.x_.tangent().flatten()
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -1755,6 +1828,21 @@ impl AOp for TransformOp<DeviceBatchArray3d<f32>, DeviceBatchArray1d<f32>, Flatt
   }
 }
 
+impl ReshapeExt<usize, DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>> for Rc<AVar<AData<DeviceBatchIoMem<u8>>>> {
+  fn reshape(&self, dim: usize) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTransform<usize>>> {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        // TODO: DeviceBatchIoMem has no present capacity, only a current size.
+        let batch_cap = x.val.get(txn, node).batch_capacity().unwrap();
+        //println!("DEBUG: reshape: batch cap: {}", batch_cap);
+        DeviceBatchArray1d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl<Op> ReshapeExt<usize, DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchIoMem<u8>>> {
   fn reshape(&self, dim: usize) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTransform<usize>>> {
     //let clk_horizon = self.data().horizon();
@@ -1773,6 +1861,17 @@ impl<Op> ReshapeExt<usize, DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>> for Rc<
 impl AVar<AData<DeviceBatchArray1d<u8>>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTransform<usize>> {
   fn _owned_data(&self) -> &AData<DeviceBatchArray1d<u8>> {
     &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<u8>>>> {
+    self.x_.tangent().reshape(self.kernel.dim)
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<u8>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -1820,6 +1919,21 @@ impl AOp for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray1d<u8>, ReshapeTr
   }
 }
 
+impl ReshapeExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>> for Rc<AVar<AData<DeviceBatchIoMem<u8>>>> {
+  fn reshape(&self, dim: (usize, usize, usize)) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>>> {
+    //let clk_horizon = self.data().horizon();
+    TransformOp::new(self.clone(), ReshapeTransform{dim: dim}, /*clk_horizon,*/ {
+      let x = self.data();
+      Rc::new(move |txn, node| {
+        // TODO: DeviceBatchIoMem has no present capacity, only a current size.
+        let batch_cap = x.val.get(txn, node).batch_capacity().unwrap();
+        //println!("DEBUG: reshape: batch cap: {}", batch_cap);
+        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl<Op> ReshapeExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>> for Rc<Op> where Op: 'static + AVar<AData<DeviceBatchIoMem<u8>>> {
   fn reshape(&self, dim: (usize, usize, usize)) -> Rc<TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>>> {
     //let clk_horizon = self.data().horizon();
@@ -1838,6 +1952,17 @@ impl<Op> ReshapeExt<(usize, usize, usize), DeviceBatchIoMem<u8>, DeviceBatchArra
 impl AVar<AData<DeviceBatchArray3d<u8>>> for TransformOp<DeviceBatchIoMem<u8>, DeviceBatchArray3d<u8>, ReshapeTransform<(usize, usize, usize)>> {
   fn _owned_data(&self) -> &AData<DeviceBatchArray3d<u8>> {
     &self.y
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<u8>>>> {
+    self.x_.tangent().reshape(self.kernel.dim)
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<u8>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -3139,6 +3264,24 @@ impl AOp for ElemLinearOp<DeviceIoBatch<f32>, DeviceIoBatch<f32>, BroadcastMultA
   }
 }
 
+impl ElemMultExt<f32, DeviceBatchArray1d<f32>> for Rc<AVar<AData<f32>>> {
+  fn elem_mult(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel>> {
+    //let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, /*clk_horizon,*/ {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray1d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+
+  fn elem_mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>, b_: Rc<AVar<AData<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel>> {
+    unimplemented!();
+  }
+}
+
 impl<Op> ElemMultExt<f32, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static + AVar<AData<f32>> {
   fn elem_mult(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel>> {
     //let clk_horizon = x_.data().horizon();
@@ -3154,6 +3297,19 @@ impl<Op> ElemMultExt<f32, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static 
 
   fn elem_mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>, b_: Rc<AVar<AData<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel>> {
     unimplemented!();
+  }
+}
+
+impl AVar<AData<DeviceBatchArray1d<f32>>> for ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel> {
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray1d<f32>>>> {
+    let tng_a_ = self.a_.tangent();
+    let tng_b_ = self.b_.as_ref().map(|b_| b_.tangent());
+    let tng_x_ = self.x_.tangent();
+    let tng_y_ = match tng_b_ {
+      None          => self.a_.elem_mult(tng_x_).add(tng_a_.elem_mult(self.x_.clone())),
+      Some(tng_b_)  => self.a_.elem_mult(tng_x_).add(tng_a_.elem_mult_add(self.x_.clone(), tng_b_)),
+    };
+    tng_y_
   }
 }
 
@@ -3212,6 +3368,24 @@ impl AOp for ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel> 
   }
 }
 
+impl ElemMultExt<f32, DeviceBatchArray3d<f32>> for Rc<AVar<AData<f32>>> {
+  fn elem_mult(&self, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel>> {
+    //let clk_horizon = x_.data().horizon();
+    ElemLinearOp::new(self.clone(), x_.clone(), None, BroadcastMultAddKernel, /*clk_horizon,*/ {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray3d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+
+  fn elem_mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>, b_: Rc<AVar<AData<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel>> {
+    unimplemented!();
+  }
+}
+
 impl<Op> ElemMultExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static + AVar<AData<f32>> {
   fn elem_mult(&self, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel>> {
     //let clk_horizon = x_.data().horizon();
@@ -3227,6 +3401,30 @@ impl<Op> ElemMultExt<f32, DeviceBatchArray3d<f32>> for Rc<Op> where Op: 'static 
 
   fn elem_mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>, b_: Rc<AVar<AData<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel>> {
     unimplemented!();
+  }
+}
+
+impl AVar<AData<DeviceBatchArray3d<f32>>> for ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel> {
+  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
+    &self.y
+  }
+
+  fn tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    if self.tng_.borrow().is_none() {
+      *self.tng_.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng_.borrow().as_ref().unwrap().clone()
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    let tng_a_ = self.a_.tangent();
+    let tng_b_ = self.b_.as_ref().map(|b_| b_.tangent());
+    let tng_x_ = self.x_.tangent();
+    let tng_y_ = match tng_b_ {
+      None          => self.a_.elem_mult(tng_x_).add(tng_a_.elem_mult(self.x_.clone())),
+      Some(tng_b_)  => self.a_.elem_mult(tng_x_).add(tng_a_.elem_mult_add(self.x_.clone(), tng_b_)),
+    };
+    tng_y_
   }
 }
 
@@ -3658,6 +3856,46 @@ pub struct CudnnConvBackend {
   sizes:    RefCell<FnvHashMap<usize, CudnnConvBackendSize>>,
 }
 
+impl ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> for Rc<AVar<AData<DeviceArray4d<f32>>>> {
+  fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
+    //let clk_horizon = x_.data().horizon();
+    // TODO: the default of 1024 might need to be decreased.
+    let backend = CudnnConvBackend{
+      scratch_sz:   Cell::new(1024),
+      scratch:      RefCell::new(DeviceMem::zeros(1024, DeviceStream::implicit().conn())),
+      sizes:        RefCell::new(FnvHashMap::default()),
+    };
+    ConvOp::new(shape, self.clone(), x_.clone(), None, backend, /*clk_horizon,*/ {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let x_dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        //println!("DEBUG: conv: input dim: {:?}", x_dim);
+        //println!("DEBUG: conv: output dim: {:?}", shape.conv2d_output_dim(x_dim));
+        DeviceBatchArray3d::zeros(shape.conv2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+
+  fn conv_add(&self, shape: ConvShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>, b_: Rc<AVar<AData<DeviceArray1d<f32>>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
+    //let clk_horizon = x_.data().horizon();
+    // TODO: the default of 1024 might need to be decreased.
+    let backend = CudnnConvBackend{
+      scratch_sz:   Cell::new(1024),
+      scratch:      RefCell::new(DeviceMem::zeros(1024, DeviceStream::implicit().conn())),
+      sizes:        RefCell::new(FnvHashMap::default()),
+    };
+    ConvOp::new(shape, self.clone(), x_.clone(), Some(b_.clone()), backend, /*clk_horizon,*/ {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let x_dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray3d::zeros(shape.conv2d_output_dim(x_dim), batch_cap, DeviceStream::implicit().conn())
+      })
+    })
+  }
+}
+
 impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> for Rc<Op> where Op: 'static + AVar<AData<DeviceArray4d<f32>>> {
   fn conv(&self, shape: ConvShape<(usize, usize)>, x_: Rc<AVar<AData<DeviceBatchArray3d<f32>>>>) -> Rc<ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend>> {
     //let clk_horizon = x_.data().horizon();
@@ -3699,8 +3937,16 @@ impl<Op> ConvExt<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceB
 }
 
 impl AVar<AData<DeviceBatchArray3d<f32>>> for ConvOp<(usize, usize), DeviceArray4d<f32>, DeviceArray1d<f32>, DeviceBatchArray3d<f32>, CudnnConvBackend> {
-  fn _owned_data(&self) -> &AData<DeviceBatchArray3d<f32>> {
-    &self.y
+  fn _make_tangent(&self) -> Rc<AVar<AData<DeviceBatchArray3d<f32>>>> {
+    let shape = self.shape.clone();
+    let tng_a_ = self.a_.tangent();
+    let tng_b_ = self.b_.as_ref().map(|b_| b_.tangent());
+    let tng_x_ = self.x_.tangent();
+    let tng_y_ = match tng_b_ {
+      None          => self.a_.conv(shape.clone(), tng_x_).add(tng_a_.conv(shape.clone(), self.x_.clone())),
+      Some(tng_b_)  => self.a_.conv(shape.clone(), tng_x_).add(tng_a_.conv_add(shape.clone(), self.x_.clone(), tng_b_)),
+    };
+    tng_y_
   }
 }
 
@@ -5026,7 +5272,7 @@ impl AVar<()> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>,
     let x_tng_ = x_.tangent();
     let t_ = self.t_.clone();
     let prob = self.prob.clone();
-    let (softmax_tng_, _, _) = SoftmaxAdj2Loss::new(x_, x_tng_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
+    let (softmax_tng_, _, _) = SoftmaxTangent2Loss::new(x_, x_tng_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
     softmax_tng_
   }
 }
@@ -5069,13 +5315,13 @@ impl AOp for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
   }
 }
 
-impl AVar<()> for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+impl AVar<()> for SoftmaxTangent2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _make_tangent(&self) -> Rc<AVar<()>> {
     unimplemented!();
   }
 }
 
-impl AOp for SoftmaxAdj2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+impl AOp for SoftmaxTangent2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _id(&self) -> NodeId {
     self.node_id
   }
