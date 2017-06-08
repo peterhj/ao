@@ -73,7 +73,7 @@ extern "C" void arraydiff_cuda_kernel_block_softmax_fwd_f32(
       block_dim, num_blocks, x, y);
 }
 
-__global__ void block_softmax_adj_fwd_f32(
+__global__ void block_softmax_tangent_fwd_f32(
     uint32_t block_dim,
     uint32_t num_blocks,
     const float *px,
@@ -125,7 +125,7 @@ __global__ void block_softmax_adj_fwd_f32(
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_block_softmax_adj_fwd_f32(
+extern "C" void arraydiff_cuda_kernel_block_softmax_tangent_fwd_f32(
     size_t block_dim,
     size_t num_blocks,
     const float *px,
@@ -136,7 +136,7 @@ extern "C" void arraydiff_cuda_kernel_block_softmax_adj_fwd_f32(
 {
   // XXX: assert(block_dim <= 1024);
   // FIXME(20151022): could make more efficient use of blocks but w/e.
-  block_softmax_adj_fwd_f32<<<num_blocks, 1024, 0, stream>>>(
+  block_softmax_tangent_fwd_f32<<<num_blocks, 1024, 0, stream>>>(
       block_dim, num_blocks, px, x, py, y);
 }
 
@@ -288,7 +288,6 @@ extern "C" void arraydiff_cuda_kernel_softmax_nll_loss_bwd_f32(
 }
 
 __global__ void block_softmax_kl2_loss_fwd_f32_kernel(
-    float epsilon,
     uint32_t block_dim,
     uint32_t num_blocks,
     const float *y,
@@ -303,8 +302,6 @@ __global__ void block_softmax_kl2_loss_fwd_f32_kernel(
   if (tid < block_dim && block < num_blocks) {
     float y_i = y[idx];
     float t_i = t[idx];
-    y_i += epsilon * (1.0f - y_i);
-    t_i += epsilon * (1.0f - t_i);
     float kl_i = 0.0f;
     if (t_i > 0.0f) {
       kl_i = t_i * (logf(t_i) - logf(y_i));
@@ -326,7 +323,6 @@ __global__ void block_softmax_kl2_loss_fwd_f32_kernel(
 }
 
 extern "C" void arraydiff_cuda_kernel_block_softmax_kl2_loss_fwd_f32(
-    float epsilon,
     size_t block_dim,
     size_t num_blocks,
     const float *y,
@@ -335,11 +331,10 @@ extern "C" void arraydiff_cuda_kernel_block_softmax_kl2_loss_fwd_f32(
     cudaStream_t stream)
 {
   block_softmax_kl2_loss_fwd_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
-      epsilon, block_dim, num_blocks, y, t, loss);
+      block_dim, num_blocks, y, t, loss);
 }
 
 __global__ void softmax_kl2_loss_bwd_f32_kernel(
-    float epsilon,
     uint32_t dim,
     uint32_t batch_sz,
     const float *y,
@@ -353,14 +348,11 @@ __global__ void softmax_kl2_loss_bwd_f32_kernel(
   if (j < dim && batch_idx < batch_sz) {
     float y_i = y[idx];
     float t_i = t[idx];
-    y_i += epsilon * (1.0f - y_i);
-    t_i += epsilon * (1.0f - t_i);
     dx[idx] += df[batch_idx] * (y_i - t_i);
   }
 }
 
 extern "C" void arraydiff_cuda_kernel_softmax_kl2_loss_bwd_f32(
-    float epsilon,
     size_t dim,
     size_t batch_sz,
     const float *y,
@@ -371,11 +363,10 @@ extern "C" void arraydiff_cuda_kernel_softmax_kl2_loss_bwd_f32(
 {
   uint32_t n = dim * batch_sz;
   softmax_kl2_loss_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
-      epsilon, dim, batch_sz, y, t, df, dx);
+      dim, batch_sz, y, t, df, dx);
 }
 
-__global__ void block_softmax_adj_kl2_loss_fwd_f32_kernel(
-    float epsilon,
+__global__ void block_softmax_tangent_kl2_loss_fwd_f32_kernel(
     uint32_t block_dim,
     uint32_t num_blocks,
     const float *py,
@@ -392,9 +383,6 @@ __global__ void block_softmax_adj_kl2_loss_fwd_f32_kernel(
     float py_i = py[idx];
     float y_i = y[idx];
     float t_i = t[idx];
-    py_i += epsilon * (1.0f - py_i);
-    y_i += -epsilon * y_i;
-    t_i += epsilon * (1.0f - t_i);
     cache[tid] = -t_i * y_i / py_i;
   } else {
     cache[tid] = 0.0f;
@@ -409,8 +397,7 @@ __global__ void block_softmax_adj_kl2_loss_fwd_f32_kernel(
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_block_softmax_adj_kl2_loss_fwd_f32(
-    float epsilon,
+extern "C" void arraydiff_cuda_kernel_block_softmax_tangent_kl2_loss_fwd_f32(
     size_t block_dim,
     size_t num_blocks,
     const float *py,
@@ -419,12 +406,11 @@ extern "C" void arraydiff_cuda_kernel_block_softmax_adj_kl2_loss_fwd_f32(
     float *loss,
     cudaStream_t stream)
 {
-  block_softmax_adj_kl2_loss_fwd_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
-      epsilon, block_dim, num_blocks, py, y, t, loss);
+  block_softmax_tangent_kl2_loss_fwd_f32_kernel<<<num_blocks, 1024, 0, stream>>>(
+      block_dim, num_blocks, py, y, t, loss);
 }
 
-__global__ void softmax_adj_kl2_loss_bwd_f32_kernel(
-    float epsilon,
+__global__ void softmax_tangent_kl2_loss_bwd_f32_kernel(
     uint32_t dim,
     uint32_t batch_sz,
     const float *y,
@@ -436,13 +422,11 @@ __global__ void softmax_adj_kl2_loss_bwd_f32_kernel(
   uint32_t batch_idx = idx / dim;
   if (j < dim && batch_idx < batch_sz) {
     float y_i = y[idx];
-    y_i += -epsilon * y_i;
     dx[idx] += df[batch_idx] * y_i;
   }
 }
 
-extern "C" void arraydiff_cuda_kernel_softmax_adj_kl2_loss_bwd_f32(
-    float epsilon,
+extern "C" void arraydiff_cuda_kernel_softmax_tangent_kl2_loss_bwd_f32(
     size_t dim,
     size_t batch_sz,
     const float *y,
@@ -451,6 +435,6 @@ extern "C" void arraydiff_cuda_kernel_softmax_adj_kl2_loss_bwd_f32(
     cudaStream_t stream)
 {
   uint32_t n = dim * batch_sz;
-  softmax_adj_kl2_loss_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
-      epsilon, dim, batch_sz, y, df, dx);
+  softmax_tangent_kl2_loss_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+      dim, batch_sz, y, df, dx);
 }

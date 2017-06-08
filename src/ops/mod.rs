@@ -3792,12 +3792,21 @@ pub struct SoftmaxOp<A> {
 
 #[derive(Clone, Copy)]
 pub struct EntropyLink;
+
 #[derive(Clone, Copy)]
-pub struct KL2Link{pub epsilon: f64}
+pub struct KL2Link;
+
 #[derive(Clone, Copy)]
 pub struct NLLLink;
+
 #[derive(Clone, Copy)]
-pub struct LRLink{pub lr_clip: f64}
+pub enum LRClip {
+  Zero,
+  Fixed(f64),
+}
+
+#[derive(Clone, Copy)]
+pub struct LRLink{pub lr_clip: LRClip}
 
 pub struct KL1LossLink;
 pub struct KL2LossLink;
@@ -3910,14 +3919,14 @@ pub struct Softmax2Loss<A, T, Loss, Link> {
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
-  tng:      RefCell<Option<Rc<AVar<()>>>>,
+  tng:      RefCell<Option<Rc<AVar<(AData<A>, AData<Loss>)>>>>,
 }
 
 impl<A, T, Loss, Link> Softmax2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<(), A>>, Rc<PassOp<(), Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     let t = t_.data();
@@ -3930,18 +3939,21 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       t_:  t_,
       x:        x,
       t:   t,
-      prob:     prob.clone(),
-      loss:     loss.clone(),
+      /*prob:     prob.clone(),
+      loss:     loss.clone(),*/
+      prob:     prob,
+      loss:     loss,
       link:     link,
       tng:      RefCell::new(None),
     });
-    let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
+    /*let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
     let loss_ = PassOp::new(Some(AVar::from(softmax_.clone())), loss);
-    (softmax_, prob_, loss_)
+    (softmax_, prob_, loss_)*/
+    softmax_
   }
 }
 
-impl<A, T, Loss, Link> AVar<()> for Softmax2Loss<A, T, Loss, Link>
+/*impl<A, T, Loss, Link> AVar<()> for Softmax2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -3963,7 +3975,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     }
     self.tng.borrow().as_ref().unwrap().clone()
   }
-}
+}*/
 
 pub struct SoftmaxTangent2Loss<A, T, Loss, Link> {
   node_id:  NodeId,
@@ -3979,14 +3991,14 @@ pub struct SoftmaxTangent2Loss<A, T, Loss, Link> {
   prob_tng: AData<A>,
   loss_tng: AData<Loss>,
   link:     Link,
-  tng:      RefCell<Option<Rc<AVar<()>>>>,
+  tng:      RefCell<Option<Rc<AVar<(AData<A>, AData<Loss>)>>>>,
 }
 
 impl<A, T, Loss, Link> SoftmaxTangent2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, x_tng_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, prob: AData<A>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<(), A>>, Rc<PassOp<(), Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, x_tng_: Rc<AVar<AData<A>>>, t_: Rc<AVar<AData<T>>>, prob: AData<A>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     let x_tng = x_tng_.data();
@@ -4003,18 +4015,21 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       x_tng:    x_tng,
       t:        t,
       prob:     prob,
-      prob_tng: prob_tng.clone(),
-      loss_tng: loss_tng.clone(),
+      /*prob_tng: prob_tng.clone(),
+      loss_tng: loss_tng.clone(),*/
+      prob_tng: prob_tng,
+      loss_tng: loss_tng,
       link:     link,
       tng:      RefCell::new(None),
     });
-    let prob_tng_ = PassOp::new(Some(AVar::from(softmax_tng_.clone())), prob_tng);
+    /*let prob_tng_ = PassOp::new(Some(AVar::from(softmax_tng_.clone())), prob_tng);
     let loss_tng_ = PassOp::new(Some(AVar::from(softmax_tng_.clone())), loss_tng);
-    (softmax_tng_, prob_tng_, loss_tng_)
+    (softmax_tng_, prob_tng_, loss_tng_)*/
+    softmax_tng_
   }
 }
 
-impl<A, T, Loss, Link> AVar<()> for SoftmaxTangent2Loss<A, T, Loss, Link>
+/*impl<A, T, Loss, Link> AVar<()> for SoftmaxTangent2Loss<A, T, Loss, Link>
 where A: 'static, T: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -4036,7 +4051,7 @@ where A: 'static, T: 'static, Loss: 'static, Link: 'static,
     }
     self.tng.borrow().as_ref().unwrap().clone()
   }
-}
+}*/
 
 pub struct Softmax3Loss<A, T1, T2, Loss, Link> {
   node_id:  NodeId,
@@ -4051,14 +4066,14 @@ pub struct Softmax3Loss<A, T1, T2, Loss, Link> {
   prob:     AData<A>,
   loss:     AData<Loss>,
   link:     Link,
-  tng:      RefCell<Option<Rc<AVar<()>>>>,
+  tng:      RefCell<Option<Rc<AVar<(AData<A>, AData<Loss>)>>>>,
 }
 
 impl<A, T1, T2, Loss, Link> Softmax3Loss<A, T1, T2, Loss, Link>
 where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
-  pub fn new(x_: Rc<AVar<AData<A>>>, t1_: Rc<AVar<AData<T1>>>, t2_: Rc<AVar<AData<T2>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> (Rc<Self>, Rc<PassOp<(), A>>, Rc<PassOp<(), Loss>>) {
+  pub fn new(x_: Rc<AVar<AData<A>>>, t1_: Rc<AVar<AData<T1>>>, t2_: Rc<AVar<AData<T2>>>, link: Link, /*clk_horizon: usize,*/ prob_alloc: Rc<Fn(TxnId, NodeId) -> A>, loss_alloc: Rc<Fn(TxnId, NodeId) -> Loss>) -> Rc<Self> {
     let node = NodeId::new();
     let x = x_.data();
     let t1 = t1_.data();
@@ -4074,18 +4089,21 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
       x:        x,
       t1:       t1,
       t2:       t2,
-      prob:     prob.clone(),
-      loss:     loss.clone(),
+      /*prob:     prob.clone(),
+      loss:     loss.clone(),*/
+      prob:     prob,
+      loss:     loss,
       link:     link,
       tng:      RefCell::new(None),
     });
-    let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
+    /*let prob_ = PassOp::new(Some(AVar::from(softmax_.clone())), prob);
     let loss_ = PassOp::new(Some(AVar::from(softmax_.clone())), loss);
-    (softmax_, prob_, loss_)
+    (softmax_, prob_, loss_)*/
+    softmax_
   }
 }
 
-impl<A, T1, T2, Loss, Link> AVar<()> for Softmax3Loss<A, T1, T2, Loss, Link>
+/*impl<A, T1, T2, Loss, Link> AVar<()> for Softmax3Loss<A, T1, T2, Loss, Link>
 where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
       Self: AOp,
 {
@@ -4107,7 +4125,7 @@ where A: 'static, T1: 'static, T2: 'static, Loss: 'static, Link: 'static,
     }
     self.tng.borrow().as_ref().unwrap().clone()
   }
-}
+}*/
 
 pub struct SoftmaxLoss<A, Target, Loss, Link> {
   node_id:  NodeId,

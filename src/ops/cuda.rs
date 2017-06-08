@@ -5310,9 +5310,28 @@ impl AOp for LstSqLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>> {
 
 //impl AVar<()> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
 impl AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)> for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, EntropyLink> {
+  fn _owned_data(&self) -> &(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>) {
+    unreachable!();
+  }
+
+  fn data(&self) -> (AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>) {
+    (self.prob.clone(), self.loss.clone())
+  }
+
+  fn vars(&self) -> VarSet {
+    self.prob._vars().union(self.loss._vars())
+  }
+
   fn _make_tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
     // FIXME
     unimplemented!();
+  }
+
+  fn tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -5350,7 +5369,7 @@ impl AOp for SoftmaxSelfLoss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, Entrop
   }
 }
 
-impl AVar<()> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+/*impl AVar<()> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _make_tangent(&self) -> Rc<AVar<()>> {
     let x_ = self.x_.clone();
     let x_tng_ = x_.tangent();
@@ -5358,6 +5377,32 @@ impl AVar<()> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>,
     let prob = self.prob.clone();
     let (softmax_tng_, _, _) = SoftmaxTangent2Loss::new(x_, x_tng_, t_, prob, self.link, self.prob.alloc.clone(), self.loss.alloc.clone());
     softmax_tng_
+  }
+}*/
+
+impl AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)> for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+  fn _owned_data(&self) -> &(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>) {
+    unreachable!();
+  }
+
+  fn data(&self) -> (AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>) {
+    (self.prob.clone(), self.loss.clone())
+  }
+
+  fn vars(&self) -> VarSet {
+    self.prob._vars().union(self.loss._vars())
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
+    // FIXME
+    unimplemented!();
+  }
+
+  fn tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -5387,21 +5432,107 @@ impl AOp for Softmax2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, Devi
   }
 
   fn _forward(&self, txn: TxnId) {
-    let epsilon = self.link.epsilon;
-    // FIXME
-    unimplemented!();
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.loss.val.overwrite(txn, node) {
+      self.loss.val.get_excl(txn, node).set_batch_size(batch_sz);
+      assert!(self.prob.val.overwrite(txn, node));
+      self.prob.val.get_excl(txn, node).set_batch_size(batch_sz);
+      if x_dim <= 1024 {
+        let conn = DeviceStream::implicit().conn();
+        self.x.val.get(txn, node).as_view().wait(&conn);
+        self.prob.val.get_excl(txn, node).as_view().wait(&conn);
+        unsafe { arraydiff_cuda_kernel_block_softmax_fwd_f32(
+            x_dim,
+            batch_sz,
+            self.x.val.get(txn, node).as_view().as_ptr(),
+            self.prob.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+            conn.raw_stream().as_ptr(),
+        ) };
+        self.x.val.get(txn, node).as_view().post(&conn);
+        self.prob.val.get_excl(txn, node).as_view().post(&conn);
+      } else {
+        unimplemented!();
+      }
+      {
+        let conn = DeviceStream::implicit().conn();
+        self.prob.val.get_excl(txn, node).as_view().wait(&conn);
+        self.t.val.get(txn, node).as_view().wait(&conn);
+        self.loss.val.get_excl(txn, node).as_mut().wait(&conn);
+        unsafe { arraydiff_cuda_kernel_block_softmax_kl2_loss_fwd_f32(
+            x_dim,
+            batch_sz,
+            self.prob.val.get_excl(txn, node).as_view().as_ptr(),
+            self.t.val.get(txn, node).as_view().as_ptr(),
+            self.loss.val.get_excl(txn, node).as_mut().as_mut_ptr(),
+            conn.raw_stream().as_ptr(),
+        ) };
+        self.prob.val.get_excl(txn, node).as_view().post(&conn);
+        self.t.val.get(txn, node).as_view().post(&conn);
+        self.loss.val.get_excl(txn, node).as_mut().post(&conn);
+      }
+    }
   }
 
   fn _backward(&self, txn: TxnId) {
-    let epsilon = self.link.epsilon;
-    // FIXME
-    unimplemented!();
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    assert_eq!(batch_sz, self.prob.val.get(txn, node).batch_size());
+    assert_eq!(batch_sz, self.loss.grad.get(txn, node).batch_size());
+    if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let conn = DeviceStream::implicit().conn();
+      self.prob.val.get_excl(txn, node).as_view().wait(&conn);
+      self.t.val.get(txn, node).as_view().wait(&conn);
+      self.loss.grad.get(txn, node).as_ref().wait(&conn);
+      self.x.grad.get_mut(txn, node).as_view_mut().wait(&conn);
+      unsafe { arraydiff_cuda_kernel_softmax_kl2_loss_bwd_f32(
+          x_dim,
+          batch_sz,
+          self.prob.val.get_excl(txn, node).as_view().as_ptr(),
+          self.t.val.get(txn, node).as_view().as_ptr(),
+          self.loss.grad.get(txn, node).as_ref().as_ptr(),
+          self.x.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+      self.prob.val.get_excl(txn, node).as_view().post(&conn);
+      self.t.val.get(txn, node).as_view().post(&conn);
+      self.loss.grad.get(txn, node).as_ref().post(&conn);
+      self.x.grad.get_mut(txn, node).as_view_mut().post(&conn);
+    }
   }
 }
 
-impl AVar<()> for SoftmaxTangent2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+/*impl AVar<()> for SoftmaxTangent2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
   fn _make_tangent(&self) -> Rc<AVar<()>> {
     unimplemented!();
+  }
+}*/
+
+impl AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)> for SoftmaxTangent2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, KL2Link> {
+  fn _owned_data(&self) -> &(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>) {
+    unreachable!();
+  }
+
+  fn data(&self) -> (AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>) {
+    (self.prob_tng.clone(), self.loss_tng.clone())
+  }
+
+  fn vars(&self) -> VarSet {
+    self.prob_tng._vars().union(self.loss_tng._vars())
+  }
+
+  fn _make_tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
+    // FIXME
+    unimplemented!();
+  }
+
+  fn tangent(&self) -> Rc<AVar<(AData<DeviceBatchArray1d<f32>>, AData<DeviceIoBatch<f32>>)>> {
+    if self.tng.borrow().is_none() {
+      *self.tng.borrow_mut() = Some(self._make_tangent());
+    }
+    self.tng.borrow().as_ref().unwrap().clone()
   }
 }
 
@@ -5429,26 +5560,92 @@ impl AOp for SoftmaxTangent2Loss<DeviceBatchArray1d<f32>, DeviceBatchArray1d<f32
   }
 
   fn _forward(&self, txn: TxnId) {
-    let epsilon = self.link.epsilon;
-    // FIXME
-    unimplemented!();
+    let node = self._id();
+    let x_dim = self.x.val.get(txn, node).dim();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    if self.loss.val.overwrite(txn, node) {
+      self.loss.val.get_excl(txn, node).set_batch_size(batch_sz);
+      assert!(self.prob.val.overwrite(txn, node));
+      self.prob.val.get_excl(txn, node).set_batch_size(batch_sz);
+      if x_dim <= 1024 {
+        let conn = DeviceStream::implicit().conn();
+        self.x.val.get(txn, node).as_view().wait(&conn);
+        self.x_tng.val.get(txn, node).as_view().wait(&conn);
+        self.prob.val.get(txn, node).as_view().wait(&conn);
+        self.prob_tng.val.get_excl(txn, node).as_view().wait(&conn);
+        unsafe { arraydiff_cuda_kernel_block_softmax_tangent_fwd_f32(
+            x_dim,
+            batch_sz,
+            self.x.val.get(txn, node).as_view().as_ptr(),
+            self.x_tng.val.get(txn, node).as_view().as_ptr(),
+            self.prob.val.get(txn, node).as_view().as_ptr(),
+            self.prob_tng.val.get_excl(txn, node).as_view_mut().as_mut_ptr(),
+            conn.raw_stream().as_ptr(),
+        ) };
+        self.x.val.get(txn, node).as_view().post(&conn);
+        self.x_tng.val.get(txn, node).as_view().post(&conn);
+        self.prob.val.get(txn, node).as_view().post(&conn);
+        self.prob_tng.val.get_excl(txn, node).as_view().post(&conn);
+      } else {
+        unimplemented!();
+      }
+      {
+        let conn = DeviceStream::implicit().conn();
+        self.prob.val.get(txn, node).as_view().wait(&conn);
+        self.prob_tng.val.get_excl(txn, node).as_view().wait(&conn);
+        self.t.val.get(txn, node).as_view().wait(&conn);
+        self.loss_tng.val.get_excl(txn, node).as_mut().wait(&conn);
+        unsafe { arraydiff_cuda_kernel_block_softmax_tangent_kl2_loss_fwd_f32(
+            x_dim,
+            batch_sz,
+            self.prob.val.get(txn, node).as_view().as_ptr(),
+            self.prob_tng.val.get_excl(txn, node).as_view().as_ptr(),
+            self.t.val.get(txn, node).as_view().as_ptr(),
+            self.loss_tng.val.get_excl(txn, node).as_mut().as_mut_ptr(),
+            conn.raw_stream().as_ptr(),
+        ) };
+        self.prob.val.get(txn, node).as_view().post(&conn);
+        self.prob_tng.val.get_excl(txn, node).as_view().post(&conn);
+        self.t.val.get(txn, node).as_view().post(&conn);
+        self.loss_tng.val.get_excl(txn, node).as_mut().post(&conn);
+      }
+    }
   }
 
   fn _backward(&self, txn: TxnId) {
-    let epsilon = self.link.epsilon;
-    // FIXME
-    unimplemented!();
+    let node = self._id();
+    let x_dim = self.x_tng.val.get(txn, node).dim();
+    let batch_sz = self.x_tng.val.get(txn, node).batch_size();
+    assert_eq!(batch_sz, self.prob_tng.val.get(txn, node).batch_size());
+    assert_eq!(batch_sz, self.loss_tng.grad.get(txn, node).batch_size());
+    if self.x_tng.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      let conn = DeviceStream::implicit().conn();
+      self.prob_tng.val.get_excl(txn, node).as_view().wait(&conn);
+      self.loss_tng.grad.get(txn, node).as_ref().wait(&conn);
+      self.x_tng.grad.get_mut(txn, node).as_view_mut().wait(&conn);
+      unsafe { arraydiff_cuda_kernel_softmax_tangent_kl2_loss_bwd_f32(
+          x_dim,
+          batch_sz,
+          self.prob_tng.val.get_excl(txn, node).as_view().as_ptr(),
+          self.loss_tng.grad.get(txn, node).as_ref().as_ptr(),
+          self.x_tng.grad.get_mut(txn, node).as_view_mut().as_mut_ptr(),
+          conn.raw_stream().as_ptr(),
+      ) };
+      self.prob_tng.val.get_excl(txn, node).as_view().post(&conn);
+      self.loss_tng.grad.get(txn, node).as_ref().post(&conn);
+      self.x_tng.grad.get_mut(txn, node).as_view_mut().post(&conn);
+    }
   }
 }
 
-impl AVar<()> for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
+/*impl AVar<()> for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
   fn _make_tangent(&self) -> Rc<AVar<()>> {
     // FIXME
     unimplemented!();
   }
-}
+}*/
 
-impl AOp for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, LRLink> {
+impl AOp for Softmax3Loss<DeviceBatchArray1d<f32>, DeviceIoBatch<u32>, DeviceIoBatch<f32>, DeviceIoBatch<f32>, LRLink> {
   fn _id(&self) -> NodeId {
     self.node_id
   }

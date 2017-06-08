@@ -400,6 +400,44 @@ extern "C" {
       x: *const f32,
       y: *mut f32,
       stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_block_softmax_tangent_fwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      x: *const f32,
+      x_tng: *const f32,
+      y: *const f32,
+      y_tng: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_block_softmax_kl2_loss_fwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y: *const f32,
+      t: *const f32,
+      loss: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_softmax_kl2_loss_bwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y: *const f32,
+      t: *const f32,
+      df: *const f32,
+      dx: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_block_softmax_tangent_kl2_loss_fwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y: *const f32,
+      y_tng: *const f32,
+      t: *const f32,
+      loss_tng: *mut f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_softmax_tangent_kl2_loss_bwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y_tng: *const f32,
+      df_tng: *const f32,
+      dx_tng: *mut f32,
+      stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_softmax_nll_loss_fwd_f32(
       dim: usize,
       batch_sz: usize,
