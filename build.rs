@@ -50,7 +50,8 @@ fn main() {
   }
 
   gcc::Config::new()
-    .compiler("/usr/local/cuda/bin/nvcc")
+    //.compiler("/usr/local/cuda/bin/nvcc")
+    .compiler("/usr/local/cuda-8.0/bin/nvcc")
     .opt_level(2)
     .flag("-arch=compute_37")
     .flag("-code=sm_37,sm_52")
