@@ -3801,7 +3801,7 @@ pub struct NLLLink;
 
 #[derive(Clone, Copy)]
 pub enum LRClip {
-  Zero,
+  No,
   Fixed(f64),
 }
 

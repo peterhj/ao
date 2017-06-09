@@ -438,6 +438,25 @@ extern "C" {
       df_tng: *const f32,
       dx_tng: *mut f32,
       stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_softmax_lr_loss_fwd_f32(
+      dim: usize,
+      batch_sz: usize,
+      y: *const f32,
+      index: *const u32,
+      t: *const f32,
+      loss: *mut f32,
+      lr_clip: f32,
+      stream: cudaStream_t);
+  pub fn arraydiff_cuda_kernel_softmax_lr_loss_bwd_f32(
+      block_dim: usize,
+      num_blocks: usize,
+      y: *const f32,
+      index: *const u32,
+      t: *const f32,
+      df: *const f32,
+      dx: *mut f32,
+      lr_clip: f32,
+      stream: cudaStream_t);
   pub fn arraydiff_cuda_kernel_softmax_nll_loss_fwd_f32(
       dim: usize,
       batch_sz: usize,

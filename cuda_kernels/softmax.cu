@@ -438,3 +438,78 @@ extern "C" void arraydiff_cuda_kernel_softmax_tangent_kl2_loss_bwd_f32(
   softmax_tangent_kl2_loss_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
       dim, batch_sz, y, df, dx);
 }
+
+__global__ void softmax_lr_loss_fwd_f32_kernel(
+    uint32_t dim,
+    uint32_t batch_sz,
+    const float *y,
+    const uint32_t *index,
+    const float *t,
+    float *loss,
+    float lr_clip)
+{
+  uint32_t batch_idx = threadIdx.x + blockDim.x * blockIdx.x;
+  if (batch_idx < batch_sz) {
+    uint32_t index_i = index[batch_idx];
+    float y_i = y[index_i + dim * batch_idx];
+    float t_i = t[batch_idx];
+    float lr_i = y_i / t_i;
+    loss[batch_idx] = min(lr_i, lr_clip);
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_softmax_lr_loss_fwd_f32(
+    size_t dim,
+    size_t batch_sz,
+    const float *y,
+    const uint32_t *index,
+    const float *t,
+    float *loss,
+    float lr_clip,
+    cudaStream_t stream)
+{
+  softmax_lr_loss_fwd_f32_kernel<<<(batch_sz + 1024 - 1) / 1024, 1024, 0, stream>>>(
+      dim, batch_sz, y, index, t, loss, lr_clip);
+}
+
+__global__ void softmax_lr_loss_bwd_f32_kernel(
+    uint32_t dim,
+    uint32_t batch_sz,
+    const float *y,
+    const uint32_t *index,
+    const float *t,
+    const float *df,
+    float *dx,
+    float lr_clip)
+{
+  uint32_t idx = threadIdx.x + blockDim.x * blockIdx.x;
+  uint32_t j = idx % dim;
+  uint32_t batch_idx = idx / dim;
+  if (j < dim && batch_idx < batch_sz) {
+    uint32_t index_i = index[batch_idx];
+    float delta_i = (float)(j == index_i);
+    float y_ij = y[idx];
+    float y_i = y[index_i + dim * batch_sz];
+    float t_i = t[batch_idx];
+    float lr_i = y_i / t_i;
+    if (lr_i < lr_clip) {
+      dx[idx] += df[batch_idx] * lr_i * (delta_i - y_ij);
+    }
+  }
+}
+
+extern "C" void arraydiff_cuda_kernel_softmax_lr_loss_bwd_f32(
+    size_t dim,
+    size_t batch_sz,
+    const float *y,
+    const uint32_t *index,
+    const float *t,
+    const float *df,
+    float *dx,
+    float lr_clip,
+    cudaStream_t stream)
+{
+  uint32_t n = dim * batch_sz;
+  softmax_lr_loss_bwd_f32_kernel<<<(n+1024-1)/1024, 1024, 0, stream>>>(
+      dim, batch_sz, y, index, t, df, dx, lr_clip);
+}
