@@ -3370,7 +3370,14 @@ impl<Op> ElemMultExt<f32, DeviceBatchArray1d<f32>> for Rc<Op> where Op: 'static 
   }
 
   fn elem_mult_add(&self, x_: Rc<AVar<AData<DeviceBatchArray1d<f32>>>>, b_: Rc<AVar<AData<f32>>>) -> Rc<ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel>> {
-    unimplemented!();
+    ElemLinearOp::new(self.clone(), x_.clone(), Some(b_.clone()), BroadcastMultAddKernel, /*clk_horizon,*/ {
+      let x = x_.data();
+      Rc::new(move |txn, node| {
+        let dim = x.val.get(txn, node).dim();
+        let batch_cap = x.val.get(txn, node).batch_capacity();
+        DeviceBatchArray1d::zeros(dim, batch_cap, DeviceStream::implicit().conn())
+      })
+    })
   }
 }
 
@@ -3430,15 +3437,23 @@ impl AOp for ElemLinearOp<f32, DeviceBatchArray1d<f32>, BroadcastMultAddKernel> 
         .flatten_mut()
         .scale(*self.a.val.get(txn, node), DeviceStream::implicit().conn());
       if let Some(ref b) = self.b {
-        // TODO
-        unimplemented!();
+        self.y.val.get_excl(txn, node).as_view_mut()
+          .flatten_mut()
+          .add_constant(*b.val.get(txn, node), DeviceStream::implicit().conn());
       }
     }
   }
 
   fn _backward(&self, txn: TxnId) {
-    // TODO
-    //unimplemented!();
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    assert_eq!(batch_sz, self.y.grad.get(txn, node).batch_size());
+    // FIXME: gradients w.r.t. a and b.
+    if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      self.x.grad.get_mut(txn, node).as_view_mut()
+        .flatten_mut()
+        .add(*self.a.val.get(txn, node), self.y.grad.get(txn, node).as_view().flatten(), DeviceStream::implicit().conn());
+    }
   }
 }
 
@@ -3554,8 +3569,15 @@ impl AOp for ElemLinearOp<f32, DeviceBatchArray3d<f32>, BroadcastMultAddKernel> 
   }
 
   fn _backward(&self, txn: TxnId) {
-    // TODO
-    //unimplemented!();
+    let node = self._id();
+    let batch_sz = self.x.val.get(txn, node).batch_size();
+    assert_eq!(batch_sz, self.y.grad.get(txn, node).batch_size());
+    // FIXME: gradients w.r.t. a and b.
+    if self.x.grad.accumulate(txn, node, |grad| grad.set_batch_size(batch_sz).as_view_mut().set_constant(0.0, DeviceStream::implicit().conn())) {
+      self.x.grad.get_mut(txn, node).as_view_mut()
+        .flatten_mut()
+        .add(*self.a.val.get(txn, node), self.y.grad.get(txn, node).as_view().flatten(), DeviceStream::implicit().conn());
+    }
   }
 }
 

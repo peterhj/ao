@@ -50,6 +50,8 @@ impl IoBuf for Array1d<f32> {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().copy(reader[offset .. offset + buf_len].flatten());
       offset += buf_len;
+    } else {
+      unimplemented!();
     }
     offset
   }
@@ -62,6 +64,8 @@ impl IoBuf for Array1d<f32> {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       writer[offset .. offset + buf_len].flatten_mut().copy(src.as_view());
       offset += buf_len;
+    } else {
+      unimplemented!();
     }
     offset
   }
@@ -76,6 +80,8 @@ impl IoBuf for Array2d<f32> {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().flatten_mut().copy(reader[offset .. offset + buf_len].flatten());
       offset += buf_len;
+    } else {
+      unimplemented!();
     }
     offset
   }
@@ -88,6 +94,8 @@ impl IoBuf for Array2d<f32> {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       writer[offset .. offset + buf_len].flatten_mut().copy(src.as_view().flatten());
       offset += buf_len;
+    } else {
+      unimplemented!();
     }
     offset
   }
@@ -102,6 +110,8 @@ impl IoBuf for Array4d<f32> {
       let reader = reader.downcast_mut::<Vec<f32>>().unwrap();
       dst.as_view_mut().flatten_mut().copy(reader[offset .. offset + buf_len].flatten());
       offset += buf_len;
+    } else {
+      unimplemented!();
     }
     offset
   }
@@ -114,6 +124,8 @@ impl IoBuf for Array4d<f32> {
       let writer = writer.downcast_mut::<Vec<f32>>().unwrap();
       writer[offset .. offset + buf_len].flatten_mut().copy(src.as_view().flatten());
       offset += buf_len;
+    } else {
+      unimplemented!();
     }
     offset
   }
